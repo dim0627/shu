@@ -1,0 +1,22 @@
+{
+  "name": "shu",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "shu": "src/cli.ts"
+  },
+  "scripts": {
+    "build": "bun build --compile src/cli.ts --outfile dist/shu",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
