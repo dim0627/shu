@@ -38,6 +38,14 @@ bun run build        # produces a single executable at dist/shu
 cp dist/shu /usr/local/bin/   # or anywhere on your PATH
 ```
 
+### Skill for coding agents
+
+```sh
+npx skills add dim0627/shu
+```
+
+This installs a small skill that tells an agent such as Claude Code when to reach for SHU and what to store in it. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
+
 ## Quick start
 
 ```sh

@@ -266,4 +266,9 @@ SHU is built on the assumption that several agents call it at the same time.
 - Calling an AI
 - An MCP server
 - A web view or a local server
-- A skill for Claude Code (to be made separately once the CLI is complete)
+
+## 10. Skill
+
+- `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. It is installed with `npx skills add dim0627/shu`
+- The skill is kept thin: when to reach for SHU, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
+- The skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
