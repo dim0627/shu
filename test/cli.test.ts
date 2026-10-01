@@ -1,18 +1,17 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as commands from "../src/commands";
-import { cleanupHomes, shu, shuJson, tempHome } from "./helpers";
+import { idWords } from "../src/id";
+import { cleanupHomes, create, shu, shuJson, tempHome } from "./helpers";
+
+// Every test here starts bun subprocesses; the 5s default is too tight on a loaded machine
+setDefaultTimeout(30_000);
 
 afterEach(cleanupHomes);
 
 const TASK_KEYS = ["id", "title", "kind", "status", "refs", "created", "updated"];
 const DETAIL_KEYS = [...TASK_KEYS, "body"];
-
-async function create(home: string, input: Record<string, unknown>): Promise<string> {
-  const { json } = await shuJson(home, ["save"], JSON.stringify(input));
-  return json.task.id;
-}
 
 describe("--json output shape (the contract)", () => {
   test("save", async () => {
@@ -102,6 +101,19 @@ describe("--json output shape (the contract)", () => {
   });
 });
 
+  test("--help and --version", async () => {
+    const home = tempHome();
+    const help = await shuJson(home, ["--help"]);
+    expect(help.exitCode).toBe(0);
+    expect(Object.keys(help.json)).toEqual(["help"]);
+    expect(help.json.help).toContain("shu save");
+    expect((await shuJson(home, [])).json).toEqual(help.json);
+
+    const version = await shuJson(home, ["--version"]);
+    expect(version.exitCode).toBe(0);
+    expect(version.json).toEqual({ version: expect.stringMatching(/^\d+\.\d+\.\d+$/) });
+  });
+
 describe("errors", () => {
   test("with --json, only the error goes to stdout and the exit code is non-zero", async () => {
     const { exitCode, stdout, stderr } = await shu(tempHome(), ["show", "aoi-kitsune", "--json"]);
@@ -117,6 +129,26 @@ describe("errors", () => {
     expect(stderr).toStartWith("shu: ");
   });
 
+  test("invalid_task names the broken task in error.id", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    writeFileSync(join(home, "tasks", id, "task.md"), "broken\n");
+    const { exitCode, json } = await shuJson(home, ["list"]);
+    expect(exitCode).toBe(1);
+    expect(json).toEqual({ error: { code: "invalid_task", message: expect.any(String), id } });
+  });
+
+  test("ambiguous_id and ref_conflict list the tasks in error.candidates", async () => {
+    const home = tempHome();
+    const a = await create(home, { title: "a", kind: "ticket", refs: ["abc-1"] });
+    const b = await create(home, { title: "b", kind: "ticket", refs: ["abc-2"] });
+    const { exitCode, json } = await shuJson(home, ["save"], '{"refs":["abc-1","abc-2"]}');
+    expect(exitCode).toBe(1);
+    expect(json).toEqual({
+      error: { code: "ref_conflict", message: expect.any(String), candidates: [a, b].sort() },
+    });
+  });
+
   test("find exits non-zero with not_found when nothing matches", async () => {
     const home = tempHome();
     await create(home, { title: "t", kind: "ticket", refs: ["abc-123"] });
@@ -127,6 +159,9 @@ describe("errors", () => {
 
   test.each([
     ["unknown command", ["frobnicate"], undefined, "invalid_input"],
+    ["a command named like an Object.prototype key", ["constructor", "aoi-kitsune"], undefined, "invalid_input"],
+    ["another Object.prototype key", ["__proto__", "aoi-kitsune"], undefined, "invalid_input"],
+    ["--remove-ref with no task to remove from", ["save", "--remove-ref", "abc-1"], '{"title":"t","kind":"ticket"}', "invalid_input"],
     ["unknown option", ["list", "--frobnicate"], undefined, "invalid_input"],
     ["an option of another command", ["list", "--force"], undefined, "invalid_input"],
     ["too few arguments", ["show"], undefined, "invalid_input"],
@@ -140,6 +175,36 @@ describe("errors", () => {
     const { exitCode, json } = await shuJson(tempHome(), args, stdin);
     expect(exitCode).toBe(1);
     expect(json.error.code).toBe(code);
+  });
+});
+
+describe("argument parsing", () => {
+  test("options may come before the command, with or without a value", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket", status: "done", refs: ["abc-1"] });
+    expect((await shuJson(home, ["--status", "done", "list"])).json.tasks.map((t: { id: string }) => t.id)).toEqual([id]);
+    expect((await shu(home, ["--json", "--ref", "abc-1", "find"])).exitCode).toBe(0);
+    expect((await shu(home, ["--author", "claude", "log", id, "note"])).exitCode).toBe(0);
+    expect((await shuJson(home, ["show", id])).json.log[0].author).toBe("claude");
+  });
+
+  test("--json after -- is a positional, not the option", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const { exitCode, stdout } = await shu(home, ["log", id, "--", "--json"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe(`logged ${id}\n`);
+    expect((await shuJson(home, ["show", id])).json.log[0].message).toBe("--json");
+  });
+
+  test("a message that starts with - goes after --", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    expect((await shuJson(home, ["log", id, "- a bullet"])).json.error.code).toBe("invalid_input");
+    expect((await shu(home, ["log", id, "--author", "claude", "--", "- a bullet"])).exitCode).toBe(0);
+    expect((await shuJson(home, ["show", id])).json.log).toEqual([
+      { at: expect.any(String), author: "claude", message: "- a bullet" },
+    ]);
   });
 });
 
@@ -204,7 +269,7 @@ describe("show", () => {
   test("accepts just the words of the ID", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });
-    const { json } = await shuJson(home, ["show", id.slice("YYYYMMDD-".length)]);
+    const { json } = await shuJson(home, ["show", idWords(id)]);
     expect(json.task.id).toBe(id);
     expect(json.log).toEqual([]);
     expect(json.artifacts).toEqual([]);
@@ -280,6 +345,29 @@ describe("artifact", () => {
     const { exitCode } = await shu(home, ["artifact", id, source, "--force"]);
     expect(exitCode).toBe(0);
     expect(stored("report.md")).toBe("second version\n");
+  });
+
+  test("a name that differs only in case never leaves the result disagreeing with what is stored", async () => {
+    const { home, id, source, stored } = await setup();
+    await shu(home, ["artifact", id, source, "--name", "brief.md"]);
+    writeFileSync(source, "second version\n");
+    const dir = join(home, "tasks", id, "artifacts");
+    const caseInsensitive = existsSync(join(dir, "BRIEF.MD"));
+
+    const plain = await shuJson(home, ["artifact", id, source, "--name", "Brief.md"]);
+    const forced = await shuJson(home, ["artifact", id, source, "--name", "Brief.md", "--force"]);
+
+    expect(forced.exitCode).toBe(0);
+    expect(forced.json.name).toBe("Brief.md");
+    expect(stored("Brief.md")).toBe("second version\n");
+    if (caseInsensitive) {
+      expect(plain.json.error.code).toBe("artifact_exists");
+      expect(plain.json.error.message).toContain("brief.md");
+      expect(readdirSync(dir)).toEqual(["Brief.md"]);
+    } else {
+      expect(plain.exitCode).toBe(0);
+      expect(readdirSync(dir).sort()).toEqual(["Brief.md", "brief.md"]);
+    }
   });
 
   test("reading from stdin requires --name", async () => {

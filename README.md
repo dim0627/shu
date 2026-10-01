@@ -60,7 +60,7 @@ shu find --ref ABC-123
 | `shu show <id>` | Show a task: metadata, body, log entries, and artifact file names. |
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
-| `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. |
+| `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
 | `shu path <id>` | Print the absolute path of the task directory. |
 
@@ -77,7 +77,7 @@ The target task is chosen in this order:
 3. If `refs` belong to two or more different tasks, it is an error. SHU never merges tasks on its own.
 4. Otherwise a new task is created. `title` and `kind` are required; `status` defaults to `open`.
 
-Updates are partial: only the fields you pass are changed. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>`.
+Updates are partial: only the fields you pass are changed. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
 
 ### Task fields
 
@@ -129,7 +129,7 @@ The root is `~/.shu`. Set `SHU_HOME` to use a different directory.
         brief.md
 ```
 
-Everything is plain Markdown, so both people and agents can read it directly. Fields in `task.md` that SHU does not know about are preserved when the task is rewritten.
+Everything is plain Markdown, so both people and agents can read it directly. Fields in `task.md` that SHU does not know about are preserved when the task is rewritten, along with their values and any comments.
 
 ## JSON output
 
@@ -144,6 +144,8 @@ With `--json`, a command prints JSON to standard output and nothing else. Field 
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
+| `--help` | `{"help": "<usage text>"}` |
+| `--version` | `{"version": "<version>"}` |
 
 On failure the exit code is non-zero. With `--json` the error is also printed to standard output:
 
@@ -155,7 +157,7 @@ On failure the exit code is non-zero. With `--json` the error is also printed to
 |---|---|
 | `invalid_input` | Bad arguments, options, or input JSON |
 | `invalid_ref` | The reference could not be normalized |
-| `invalid_task` | A stored `task.md` does not match the schema |
+| `invalid_task` | A stored `task.md` does not match the schema (`error.id` is that task) |
 | `not_found` | No such task |
 | `ambiguous_id` | The ID words match several tasks (`error.candidates` lists them) |
 | `ref_conflict` | A reference belongs to another task, or to several (`error.candidates` lists them) |
@@ -172,6 +174,7 @@ SHU assumes several agents may call it at the same time.
 - `task.md` is written to a temporary file and renamed into place.
 - Updates to a task are serialized with a per-task lock file.
 - Reference checks and the save that follows run under a global lock.
+- A lock left behind by a crashed process is taken over after 10 seconds, by one process at a time.
 - A log entry is written with a single append.
 
 ## Development

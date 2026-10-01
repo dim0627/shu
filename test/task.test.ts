@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as commands from "../src/commands";
-import type { ShuError } from "../src/errors";
 import { taskDir, taskFile } from "../src/store";
 import { parseSaveInput, parseTaskFile, serializeTask } from "../src/task";
-import { cleanupHomes, testCtx } from "./helpers";
+import { cleanupHomes, codeOf, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
 
@@ -26,15 +25,6 @@ updated: 2026-10-01T12:34:56+09:00
 Current summary
 `;
 
-function codeOf(fn: () => unknown): string | undefined {
-  try {
-    fn();
-  } catch (e) {
-    return (e as ShuError).code;
-  }
-  return undefined;
-}
-
 function frontmatter(overrides: Record<string, string | null>): string {
   const fields: Record<string, string | null> = {
     id: ID,
@@ -53,7 +43,7 @@ function frontmatter(overrides: Record<string, string | null>): string {
 
 describe("reading and writing task.md", () => {
   test("reads the example from the spec", () => {
-    expect(parseTaskFile(SPEC_EXAMPLE, ID)).toEqual({
+    expect(parseTaskFile(SPEC_EXAMPLE, ID)).toMatchObject({
       id: ID,
       title: "Investigate double-charged payments",
       kind: "bug-investigation",
@@ -66,7 +56,6 @@ describe("reading and writing task.md", () => {
       created: "2026-10-01T12:00:00+09:00",
       updated: "2026-10-01T12:34:56+09:00",
       body: "Current summary",
-      extra: {},
     });
   });
 
@@ -117,21 +106,50 @@ describe("reading and writing task.md", () => {
 });
 
 describe("unknown fields", () => {
-  test("are kept when save rewrites the task", () => {
+  function setup(extraFrontMatter: string) {
     const ctx = testCtx();
     const { task } = commands.save(ctx, JSON.stringify({ title: "t", kind: "ticket" }));
     const file = taskFile(ctx.home, task.id);
-    writeFileSync(
-      file,
-      readFileSync(file, "utf8").replace(/---\n$/, "priority: high\nowner:\n  team: payments\n---\n"),
-    );
+    writeFileSync(file, readFileSync(file, "utf8").replace(/---\n$/, `${extraFrontMatter}---\n`));
+    const read = () => readFileSync(file, "utf8");
+    return { ctx, id: task.id, read };
+  }
 
-    commands.save(ctx, JSON.stringify({ id: task.id, status: "waiting", refs: ["abc-123"] }));
+  test("are kept when save rewrites the task", () => {
+    const { ctx, id, read } = setup("priority: high\nowner:\n  team: payments\n");
 
-    const { extra, status, refs } = parseTaskFile(readFileSync(file, "utf8"), task.id);
-    expect(extra).toEqual({ priority: "high", owner: { team: "payments" } });
+    commands.save(ctx, JSON.stringify({ id, status: "waiting", refs: ["abc-123"] }));
+
+    expect(read()).toContain("priority: high\nowner:\n  team: payments\n---\n");
+    const { status, refs } = parseTaskFile(read(), id);
     expect(status).toBe("waiting");
     expect(refs).toEqual(["linear:ABC-123"]);
+  });
+
+  test.each([
+    ["an integer beyond 2^53", "ticket: 12345678901234567890"],
+    ["a version-like number", "version: 1.10"],
+    ["a quoted string", 'note: "quoted"'],
+    ["a comment", "# why this is parked"],
+    ["an anchor and an alias", "first: &n hello\nagain: *n"],
+  ])("%s is written back unchanged", (_, line) => {
+    const { ctx, id, read } = setup(`${line}\n`);
+    commands.save(ctx, JSON.stringify({ id, status: "waiting" }));
+    expect(read()).toContain(`\n${line}\n---\n`);
+  });
+
+  test("a new refs field goes after status, ahead of unknown fields", () => {
+    const { ctx, id, read } = setup("priority: high\n");
+    commands.save(ctx, JSON.stringify({ id, refs: ["abc-123"] }));
+    expect(read()).toMatch(/\nstatus: open\nrefs:\n  - linear:ABC-123\ncreated: .*\nupdated: .*\npriority: high\n---\n$/);
+  });
+
+  test("removing the last ref removes the refs field", () => {
+    const { ctx, id, read } = setup("priority: high\n");
+    commands.save(ctx, JSON.stringify({ id, refs: ["abc-123"] }));
+    commands.save(ctx, JSON.stringify({ id }), ["abc-123"]);
+    expect(read()).not.toContain("refs");
+    expect(read()).toContain("priority: high\n---\n");
   });
 });
 
@@ -158,12 +176,12 @@ describe("save input validation", () => {
   test("invalid input creates no task", () => {
     const ctx = testCtx();
     const inputs = [
-      '{"title":"t","kind":"ticket","status":"active"}',
-      '{"title":"t","kind":"ticket","refs":["not a ref"]}',
-      '{"title":"t"}',
-      '{"kind":"ticket","refs":["abc-123"]}',
+      ['{"title":"t","kind":"ticket","status":"active"}', "invalid_input"],
+      ['{"title":"t","kind":"ticket","refs":["not a ref"]}', "invalid_ref"],
+      ['{"title":"t"}', "invalid_input"],
+      ['{"kind":"ticket","refs":["abc-123"]}', "invalid_input"],
     ];
-    for (const input of inputs) expect(codeOf(() => commands.save(ctx, input))).toBeDefined();
+    for (const [input, code] of inputs) expect(codeOf(() => commands.save(ctx, input))).toBe(code);
     expect(commands.list(ctx, { all: true }).tasks).toEqual([]);
   });
 });

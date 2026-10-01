@@ -2,11 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as commands from "../src/commands";
-import { ShuError } from "../src/errors";
-import { generateId, ID_PATTERN } from "../src/id";
+import { generateId, ID_PATTERN, idWords } from "../src/id";
 import { createTaskDir, resolveId, taskDir, tasksDir } from "../src/store";
 import { ADJECTIVES, NOUNS } from "../src/words";
-import { cleanupHomes, tempHome, testCtx } from "./helpers";
+import { cleanupHomes, codeOf, errorOf, tempHome, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
 
@@ -15,15 +14,6 @@ const NOW = new Date(2026, 9, 1, 12, 0, 0);
 function sequence(values: number[]): () => number {
   let index = 0;
   return () => values[Math.min(index++, values.length - 1)];
-}
-
-function codeOf(fn: () => unknown): string | undefined {
-  try {
-    fn();
-  } catch (e) {
-    return (e as ShuError).code;
-  }
-  return undefined;
 }
 
 describe("word lists", () => {
@@ -92,26 +82,22 @@ describe("ID lookup", () => {
     const { ctx, create } = setup();
     const id = create("a");
     expect(resolveId(ctx.home, id)).toBe(id);
-    expect(resolveId(ctx.home, id.slice("20261001-".length))).toBe(id);
+    expect(resolveId(ctx.home, idWords(id))).toBe(id);
   });
 
   test("words matching several tasks are an error that lists the candidates", () => {
     const { ctx, create } = setup();
     const id = create("a");
-    const words = id.slice("20261001-".length);
+    const words = idWords(id);
     const other = `20250101-${words}`;
     mkdirSync(taskDir(ctx.home, other));
     writeFileSync(
       join(taskDir(ctx.home, other), "task.md"),
       `---\nid: ${other}\ntitle: b\nkind: ticket\nstatus: open\ncreated: 2025-01-01T00:00:00+09:00\nupdated: 2025-01-01T00:00:00+09:00\n---\n`,
     );
-    try {
-      resolveId(ctx.home, words);
-      throw new Error("expected an error");
-    } catch (e) {
-      expect((e as ShuError).code).toBe("ambiguous_id");
-      expect((e as ShuError).details.candidates).toEqual([other, id]);
-    }
+    const error = errorOf(() => resolveId(ctx.home, words));
+    expect(error.code).toBe("ambiguous_id");
+    expect(error.details.candidates).toEqual([other, id]);
     expect(resolveId(ctx.home, other)).toBe(other);
   });
 

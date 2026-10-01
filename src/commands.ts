@@ -31,7 +31,6 @@ import {
 } from "./store";
 import {
   applyUpdate,
-  normalizeBody,
   parseSaveInput,
   type SaveInput,
   serializeTask,
@@ -39,6 +38,7 @@ import {
   STATUSES,
   type Task,
 } from "./task";
+import { trimBlankEdges } from "./text";
 import { formatLocalIso } from "./time";
 
 export interface Ctx {
@@ -126,13 +126,15 @@ export function save(
   if (both !== undefined) {
     throw new ShuError("invalid_input", `the same ref is in both refs and --remove-ref: ${both}`);
   }
-  const now = ctx.now();
 
   const run = () => {
     const target = findTarget(ctx.home, input.id, addRefs);
+    if (!target && removeRefs.length > 0) {
+      throw new ShuError("invalid_input", "--remove-ref needs an existing task: give its id or one of its refs");
+    }
     const task = target
-      ? updateTask(ctx.home, target.id, input, addRefs, removeRefs, now)
-      : createTask(ctx, input, addRefs, now);
+      ? updateTask(ctx, target.id, input, addRefs, removeRefs)
+      : createTask(ctx, input, addRefs);
     const result: SaveResult = target?.result ?? "created";
     return { result, task: detail(task) };
   };
@@ -152,10 +154,10 @@ function findTarget(
 
   if (idInput !== undefined) {
     const id = resolveId(home, idInput);
-    const other = owners.find((task) => task.id !== id);
-    if (other) {
-      throw new ShuError("ref_conflict", `a ref belongs to another task: ${other.id}`, {
-        candidates: [other.id],
+    const candidates = owners.filter((task) => task.id !== id).map((task) => task.id);
+    if (candidates.length > 0) {
+      throw new ShuError("ref_conflict", `refs belong to other tasks: ${candidates.join(", ")}`, {
+        candidates,
       });
     }
     return { id, result: "updated" };
@@ -169,25 +171,22 @@ function findTarget(
   return owners.length === 1 ? { id: owners[0].id, result: "matched" } : null;
 }
 
-function updateTask(
-  home: string,
-  id: string,
-  input: SaveInput,
-  addRefs: string[],
-  removeRefs: string[],
-  now: Date,
-): Task {
+function updateTask(ctx: Ctx, id: string, input: SaveInput, addRefs: string[], removeRefs: string[]): Task {
+  const { home } = ctx;
   return withLock(taskLock(home, id), () => {
-    const next = applyUpdate(readTask(home, id), input, addRefs, removeRefs, formatLocalIso(now));
+    // Read the clock only once the lock is held: a save that waited must not write an older `updated`
+    const updated = formatLocalIso(ctx.now());
+    const next = applyUpdate(readTask(home, id), input, addRefs, removeRefs, updated);
     writeFileAtomic(taskFile(home, id), serializeTask(next));
     return next;
   });
 }
 
-function createTask(ctx: Ctx, input: SaveInput, refs: string[], now: Date): Task {
+function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
   if (input.title === undefined || input.kind === undefined) {
     throw new ShuError("invalid_input", "title and kind are required to create a task");
   }
+  const now = ctx.now();
   const stamp = formatLocalIso(now);
   const task: Task = {
     id: createTaskDir(ctx.home, now, ctx.random),
@@ -197,8 +196,8 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[], now: Date): Task
     refs,
     created: stamp,
     updated: stamp,
-    body: normalizeBody(input.body ?? ""),
-    extra: {},
+    body: trimBlankEdges(input.body ?? ""),
+    front: "",
   };
   writeFileAtomic(taskFile(ctx.home, task.id), serializeTask(task));
   return task;
@@ -206,9 +205,15 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[], now: Date): Task
 
 export function find(ctx: Ctx, refInput: string): { task: TaskDetail } {
   const ref = normalizeRef(refInput);
-  const task = loadTasks(ctx.home).find((candidate) => candidate.refs.includes(ref));
-  if (!task) throw new ShuError("not_found", `no task has ref ${ref}`);
-  return { task: detail(task) };
+  const owners = loadTasks(ctx.home).filter((task) => task.refs.includes(ref));
+  if (owners.length === 0) throw new ShuError("not_found", `no task has ref ${ref}`);
+  if (owners.length > 1) {
+    const candidates = owners.map((task) => task.id);
+    throw new ShuError("ref_conflict", `ref ${ref} belongs to several tasks: ${candidates.join(", ")}`, {
+      candidates,
+    });
+  }
+  return { task: detail(owners[0]) };
 }
 
 export function log(
@@ -242,14 +247,21 @@ export function artifact(
     throw new ShuError("invalid_input", `file not found: ${source.path}`);
   }
 
-  mkdirSync(artifactsDir(ctx.home, id), { recursive: true });
-  const dest = join(artifactsDir(ctx.home, id), name);
+  const dir = artifactsDir(ctx.home, id);
+  mkdirSync(dir, { recursive: true });
+  const dest = join(dir, name);
+  const existing = otherSpelling(dir, name);
+  if (existing !== undefined && !options.force) {
+    throw new ShuError("artifact_exists", `an artifact named ${existing} already exists (use --force to overwrite)`);
+  }
   // Write fully next to artifacts/ first so a half-written file is never visible there
   const tmp = join(taskDir(ctx.home, id), `.tmp-${uniqueSuffix()}`);
   try {
     if ("path" in source) copyFileSync(source.path, tmp);
     else writeFileSync(tmp, source.data);
     if (options.force) {
+      // rename keeps the spelling of the entry it replaces, so give the old entry the new name first
+      if (existing !== undefined) renameSync(join(dir, existing), dest);
       renameSync(tmp, dest);
     } else {
       // rename overwrites silently; link fails if the name is taken
@@ -264,6 +276,16 @@ export function artifact(
     rmSync(tmp, { force: true });
   }
   return { id, name, path: dest };
+}
+
+// On a case-insensitive file system, the same file can already exist under another spelling
+function otherSpelling(dir: string, name: string): string | undefined {
+  const inode = (path: string) => statSync(path, { throwIfNoEntry: false })?.ino;
+  const target = inode(join(dir, name));
+  if (target === undefined) return undefined;
+  return readdirSync(dir).find(
+    (entry) => entry !== name && entry.toLowerCase() === name.toLowerCase() && inode(join(dir, entry)) === target,
+  );
 }
 
 function isFile(path: string): boolean {

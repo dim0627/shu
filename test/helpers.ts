@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Ctx } from "../src/commands";
+import { ShuError } from "../src/errors";
 
 const CLI = join(import.meta.dir, "../src/cli.ts");
 
@@ -21,6 +22,19 @@ export function tempHome(): string {
 export function testCtx(overrides: Partial<Ctx> = {}): Ctx {
   return { home: tempHome(), now: () => new Date(), random: Math.random, ...overrides };
 }
+
+// Fails the test unless fn throws a ShuError, so an unrelated exception cannot pass for the expected one
+export function errorOf(fn: () => unknown): ShuError {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof ShuError) return e;
+    throw e;
+  }
+  throw new Error("expected a ShuError");
+}
+
+export const codeOf = (fn: () => unknown): string => errorOf(fn).code;
 
 export interface RunResult {
   exitCode: number;
@@ -51,3 +65,10 @@ export async function shuJson(home: string, args: string[], stdin?: string): Pro
   const result = await shu(home, [...args, "--json"], stdin);
   return { ...result, json: JSON.parse(result.stdout) };
 }
+
+export async function create(home: string, input: Record<string, unknown>): Promise<string> {
+  return (await shuJson(home, ["save"], JSON.stringify(input))).json.task.id;
+}
+
+// Shared with the loop worker so the test can rebuild the exact message each append wrote
+export const logMessage = (author: string, i: number) => `${author} #${i} ☕\n${`${i}`.repeat(1000)}\nend`;

@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
-  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ import { generateId, ID_PATTERN, ID_WORDS_PATTERN, idWords } from "./id";
 import { parseTaskFile, type Task } from "./task";
 
 const MAX_ID_ATTEMPTS = 20;
+const RELEASE_ATTEMPTS = 50;
 
 export interface LockOptions {
   retryMs: number;
@@ -23,7 +25,7 @@ export interface LockOptions {
   staleMs: number;
 }
 
-// timeoutMs > staleMs so a waiter outlives a crashed holder's lock and can steal it
+// timeoutMs > staleMs so a waiter outlives a crashed holder's lock and can take it over
 export const DEFAULT_LOCK: LockOptions = { retryMs: 20, timeoutMs: 15_000, staleMs: 10_000 };
 
 export const tasksDir = (home: string) => join(home, "tasks");
@@ -105,12 +107,16 @@ export function writeFileAtomic(path: string, content: string): void {
   renameSync(tmp, path);
 }
 
+const held: { path: string; token: string }[] = [];
+
 export function withLock<T>(path: string, fn: () => T, options: LockOptions = DEFAULT_LOCK): T {
   const token = acquire(path, options);
+  held.push({ path, token });
   try {
     return fn();
   } finally {
-    release(path, token);
+    held.pop();
+    release(path, token, options.staleMs);
   }
 }
 
@@ -118,48 +124,84 @@ function acquire(path: string, { retryMs, timeoutMs, staleMs }: LockOptions): st
   const token = uniqueSuffix();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    try {
-      writeFileSync(path, token, { flag: "wx" });
-      return token;
-    } catch (e) {
-      if (!hasErrno(e, "EEXIST")) throw e;
-    }
-    if (stealIfStale(path, staleMs)) continue;
+    if (createExclusive(path, token) || takeOverIfStale(path, token, staleMs)) return token;
     if (Date.now() >= deadline) {
       throw new ShuError("lock_timeout", `could not acquire lock: ${path}`);
     }
+    keepHeldLocksFresh();
     Bun.sleepSync(retryMs + Math.random() * retryMs);
   }
 }
 
-function stealIfStale(path: string, staleMs: number): boolean {
-  const isStale = (file: string) => Date.now() - statSync(file).mtimeMs >= staleMs;
-  const stolen = `${path}.stale-${uniqueSuffix()}`;
+function createExclusive(path: string, token: string): boolean {
   try {
-    if (!isStale(path)) return false;
-    renameSync(path, stolen);
+    writeFileSync(path, token, { flag: "wx" });
+    return true;
   } catch (e) {
-    if (hasErrno(e, "ENOENT")) return false;
+    if (hasErrno(e, "EEXIST")) return false;
     throw e;
   }
-  // Between stat and rename another process may have stolen and re-taken the lock; put a live one back
-  const stoleLiveLock = !isStale(stolen);
-  if (stoleLiveLock) {
-    try {
-      linkSync(stolen, path);
-    } catch (e) {
-      if (!hasErrno(e, "EEXIST")) throw e;
-    }
-  }
-  unlinkSync(stolen);
-  return !stoleLiveLock;
 }
 
-// If our lock was judged stale and stolen, the file now belongs to the thief; check before removing
-function release(path: string, token: string): void {
+function lockState(path: string, staleMs: number): { token: string; stale: boolean } | null {
   try {
-    if (readFileSync(path, "utf8") === token) unlinkSync(path);
+    const stale = Date.now() - statSync(path).mtimeMs >= staleMs;
+    return { token: readFileSync(path, "utf8"), stale };
+  } catch (e) {
+    if (hasErrno(e, "ENOENT")) return null;
+    throw e;
+  }
+}
+
+const guardOf = (path: string) => `${path}.steal`;
+
+// Only the process that creates the guard may touch a lock it does not hold, and the new lock is
+// renamed over the stale one, so the lock path is never empty for a third process to slip into.
+function takeOverIfStale(path: string, token: string, staleMs: number): boolean {
+  if (!lockState(path, staleMs)?.stale) return false;
+  const guard = guardOf(path);
+  if (!createExclusive(guard, token)) {
+    if (lockState(guard, staleMs)?.stale) rmSync(guard, { force: true });
+    return false;
+  }
+  // Another process may have taken the lock over between the first check and the guard
+  if (!lockState(path, staleMs)?.stale) {
+    rmSync(guard, { force: true });
+    return false;
+  }
+  try {
+    renameSync(guard, path);
   } catch (e) {
     if (!hasErrno(e, "ENOENT")) throw e;
+  }
+  return lockState(path, staleMs)?.token === token;
+}
+
+// A holder that waits for another lock would otherwise look dead and have its own lock taken over
+function keepHeldLocksFresh(): void {
+  const now = new Date();
+  for (const { path, token } of held) {
+    try {
+      if (readFileSync(path, "utf8") === token) utimesSync(path, now, now);
+    } catch (e) {
+      if (!hasErrno(e, "ENOENT")) throw e;
+    }
+  }
+}
+
+// The guard keeps a takeover from swapping the lock in between the ownership check and the unlink
+function release(path: string, token: string, staleMs: number): void {
+  const guard = guardOf(path);
+  for (let attempt = 0; attempt < RELEASE_ATTEMPTS; attempt++) {
+    if (createExclusive(guard, token)) {
+      try {
+        if (lockState(path, staleMs)?.token === token) unlinkSync(path);
+      } finally {
+        rmSync(guard, { force: true });
+      }
+      return;
+    }
+    if (lockState(guard, staleMs)?.stale) rmSync(guard, { force: true });
+    else Bun.sleepSync(1);
   }
 }

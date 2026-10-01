@@ -65,7 +65,7 @@ updated: 2026-10-01T12:34:56+09:00
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
 | `updated` | ISO 8601 | ✓ | Updated by SHU on every save |
 
-Unknown fields are preserved (reading a task and writing it back does not drop them).
+Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept.
 
 - `title` and `kind` are single-line strings with no line breaks
 - If a `task.md` that is read does not match this format (for example, after being edited by hand), the task is not silently skipped; it is an error (`invalid_task`). Skipping it would remove its refs from the dedupe check and lead to duplicate tasks
@@ -80,16 +80,18 @@ Append-only. The format of one entry:
 Reviewed the PR changes. The likely cause is that the idempotency key is not set on payment retries.
 ```
 
-- The heading line is `## <ISO 8601> <author>`. The author defaults to `unknown`. The author is a single-line string with no line breaks
+- The heading line is `## <ISO 8601> <author>`. The author defaults to `unknown`. The author is a single-line string: it has no line breaks, which includes the Unicode line and paragraph separators (U+2028, U+2029)
 - No command rewrites or deletes existing content
-- Only a line that starts with `## <ISO 8601>` separates entries. Ordinary Markdown headings inside a message (such as `## Findings`) do not
+- Only a line that starts with `## <ISO 8601>`, where the timestamp is a real date and time, separates entries. Ordinary Markdown headings inside a message (such as `## Findings`) do not
 - Appending a message that contains a line of the form `## <ISO 8601> ...` is an error (so that a line cannot pass for a past entry). An empty message is also an error
+- Line breaks in a message are stored as LF, so the entry that `log` returns is the entry that `show` reads back
 
 ### 3.3 artifacts/
 
 - Any file can be stored. The file name is kept as is
 - The file name is a single name directly under `artifacts/`. A name containing a path separator (`/` `\`), `.`, and `..` are errors
 - If a file with the same name exists, it is an error. It is overwritten only with `--force`
+- On a case-insensitive file system, a name that differs from an existing one only in case names the same file. Without `--force` it is an error; with `--force` the file is replaced and stored under the new spelling
 
 ## 4. ID allocation
 
@@ -111,13 +113,14 @@ The format is `<kind>:<value>`. Refs are normalized when saved.
 | `github` | `github:<owner>/<repo>#<number>` | `https://github.com/owner/repo/pull/482`, `owner/repo#482` |
 | `linear` | `linear:<KEY>-<number>` (KEY in uppercase) | `abc-123`, `https://linear.app/<ws>/issue/ABC-123/...` |
 | `slack` | `slack:<permalink URL>` | The permalink of a Slack message |
-| `url` | `url:<URL>` | Any URL that matches none of the above |
+| `url` | `url:<URL>` | Any other `http(s)` URL |
 
 - Input that cannot be normalized is an error (`invalid_ref`)
 - `github`: `owner` and `repo` are lowercased (GitHub does not distinguish case). URLs of the form `/pull/<number>` and `/issues/<number>` are accepted, and any path after that (such as `/files`) is ignored
 - `slack`: the query and the fragment are dropped. However, if the query has `thread_ts` (the permalink of a reply inside a thread), the ref is **normalized to the permalink of the thread's parent message**, so that a link to any message in a thread dedupes to the same task
 - Input with an explicit kind (`linear:abc-123`, `github:https://github.com/...`, and so on) is also accepted. If the kind detected from the value differs from the given kind, it is an error (for example `linear:owner/repo#1`, or `url:` with a GitHub PR URL)
-- GitHub, Linear, and Slack URLs that do not match the forms above (such as a repository's top page) become `url`
+- `<number>` is a positive integer. Input in the form of a pull request, an issue, or a Linear issue whose number is 0 or too large to be an integer is an error, also when it is a URL (it does not become `url`)
+- GitHub, Linear, and Slack URLs that do not have the forms above (such as a repository's top page) become `url`
 - **A ref belongs to at most one task across all tasks** (the basis of the dedupe in §6.3)
 
 ## 6. Commands
@@ -128,6 +131,7 @@ Common to all commands:
 - On failure the exit code is non-zero. With `--json`, the error is also written to standard output as `{"error": {"code": "...", "message": "..."}}`
 - The shape of the JSON stays compatible (fields are not removed and their types do not change)
 - Human-oriented errors go to standard error (nothing is written to standard output)
+- Options may come before or after the command. `--` ends the options: everything after it is a positional argument, even if it looks like an option
 
 Output shape with `--json`:
 
@@ -140,6 +144,8 @@ Output shape with `--json`:
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
+| `--help`, or no command | `{"help": "<usage text>"}` |
+| `--version` | `{"version": "<version>"}` |
 
 `<task>` is `{"id", "title", "kind", "status", "refs", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none.
 
@@ -149,7 +155,7 @@ Error codes (`error.code`):
 |---|---|
 | `invalid_input` | Invalid arguments, options, or input JSON |
 | `invalid_ref` | The ref cannot be normalized |
-| `invalid_task` | A stored task.md does not match the format |
+| `invalid_task` | A stored task.md does not match the format (`error.id` holds the ID of that task) |
 | `not_found` | The task was not found |
 | `ambiguous_id` | The words of an ID match several tasks (`error.candidates` holds the candidate IDs) |
 | `ref_conflict` | A ref belongs to another task or to several tasks (`error.candidates` holds the IDs of those tasks) |
@@ -203,6 +209,7 @@ Update rules:
 - `id` and `created` cannot be changed
 - The only input fields are `id` / `title` / `kind` / `status` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
 - `--remove-ref` can be repeated. Naming a ref that the target task does not have does nothing (it is not an error). Naming the same ref in both `refs` and `--remove-ref` is an error
+- `--remove-ref` is not used to choose the target task. If the save does not resolve to an existing task (by `id` or by `refs`), `--remove-ref` is an error and no task is created
 - An empty `body` clears the body
 
 The output includes a field that tells whether the task was created, updated, or matched by dedupe (`"result": "created" | "updated" | "matched"`).
@@ -211,9 +218,13 @@ The output includes a field that tells whether the task was created, updated, or
 
 Looks up a task from a ref. The input goes through the normalization in §5 before matching. If nothing is found, the exit code is non-zero. With `--json` the exit code is also non-zero and the output is `{"error": {"code": "not_found", ...}}` (so that the error shape matches the other commands and callers can branch on the exit code alone).
 
+If the ref is found on more than one task (which can only happen when files were edited by hand), it is an error (`ref_conflict`), the same as for `save`.
+
 ### 6.5 `shu log <id> [message]`
 
 Appends one entry to the log. If `message` is omitted, it is read from standard input. `--author <name>` sets the author. `task.md` (including `updated`) is not changed.
+
+A message that starts with `-` would be read as an option. Put it after `--` (`shu log <id> -- "- a bullet"`) or pass it on standard input.
 
 ### 6.6 `shu artifact <id> <file>`
 
@@ -234,9 +245,11 @@ SHU is built on the assumption that several agents call it at the same time.
 
 - **Creation**: collisions are prevented by the atomic directory creation in §4
 - **Writing task.md**: written to a temporary file and then put in place with `rename` (no intermediate state is visible)
-- **Conflicting updates to task.md**: a per-task lock file (`tasks/<id>/.lock`, created with `O_EXCL`) is taken before the read → update → write. If the lock cannot be taken, it is retried at short intervals and given up as an error after a set time. A stale lock (older than a set time) may be stolen
+- **Conflicting updates to task.md**: a per-task lock file (`tasks/<id>/.lock`, created with `O_EXCL`) is taken before the read → update → write. If the lock cannot be taken, it is retried at short intervals and given up as an error after a set time. A stale lock (not modified for a set time) may be taken over. `updated` is the time read after the lock is taken, so a save that had to wait never writes an older `updated` over a newer one
 - **Conflicting dedupe**: the ref uniqueness check and the save that follows run inside a global lock (`~/.shu/.lock`). Only a `save` whose input has `refs` or `--remove-ref` takes the global lock (an update that leaves refs alone cannot affect dedupe, so it runs under the per-task lock only). When both are taken, the order is always the global lock, then the task lock
-- **Lock timing**: the retry interval is 20–40 ms, a lock attempt is given up after 15 seconds as an error (`lock_timeout`), and a lock last modified 10 or more seconds ago is considered stale and is stolen. The wait is the longer of the two, so that a waiter can steal a lock left behind by a crashed process and proceed
+- **Lock timing**: the retry interval is 20–40 ms, a lock attempt is given up after 15 seconds as an error (`lock_timeout`), and a lock last modified 10 or more seconds ago is considered stale and is taken over. The wait is the longer of the two, so that a waiter can take over a lock left behind by a crashed process and proceed
+- **A live holder's lock does not go stale**: while a process waits for a lock, it keeps refreshing the modification time of the locks it already holds. Without this, a save that holds the global lock while waiting for a task lock would look dead after 10 seconds and lose the global lock to another save
+- **Taking over a stale lock**: only one process at a time may take over a given lock. It claims that right by creating a guard file (`<lock>.steal`) with `O_EXCL`, checks under the guard that the lock is still stale, and then renames the guard over the lock. The lock path is never empty during a takeover, so no third process can create the lock in between. Releasing a lock takes the same guard, so a takeover cannot swap the lock between the release's ownership check and its unlink. A guard left behind by a crashed process is removed once it is stale
 - **log.md**: one entry is written with a single write in append mode
 - **Artifacts**: the file is written completely to a temporary file and then placed in `artifacts/`. Without `--force` it is placed with an operation that fails if the name is taken (a hard link), so that exactly one of several simultaneous saves succeeds
 

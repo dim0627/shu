@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as commands from "../src/commands";
-import type { ShuError } from "../src/errors";
-import { tasksDir } from "../src/store";
-import { cleanupHomes, testCtx } from "./helpers";
+import { idWords } from "../src/id";
+import { taskFile, taskLock, tasksDir } from "../src/store";
+import { cleanupHomes, errorOf, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
 
@@ -17,15 +17,6 @@ function setup() {
     commands.save(ctx, JSON.stringify(input), removeRefs);
   const taskCount = () => readdirSync(tasksDir(ctx.home)).length;
   return { ctx, save, taskCount, advance: () => (now = T1) };
-}
-
-function errorOf(fn: () => unknown): ShuError {
-  try {
-    fn();
-  } catch (e) {
-    return e as ShuError;
-  }
-  throw new Error("expected an error");
 }
 
 const PR = "https://github.com/example-org/example-repo/pull/482";
@@ -85,10 +76,28 @@ describe("updating by id", () => {
     expect(commands.show(ctx, created.id).task).toEqual(task);
   });
 
+  test("the clock is read while the task lock is held, so a save that waited does not write an older updated", () => {
+    const { ctx, save } = setup();
+    const created = save({ title: "t", kind: "ticket" }).task;
+    const lockedWhenRead: boolean[] = [];
+    const watching = {
+      ...ctx,
+      now: () => {
+        lockedWhenRead.push(existsSync(taskLock(ctx.home, created.id)));
+        return T1;
+      },
+    };
+
+    const { task } = commands.save(watching, JSON.stringify({ id: created.id, refs: ["abc-1"] }));
+
+    expect(lockedWhenRead).toEqual([true]);
+    expect(Date.parse(task.updated)).toBe(T1.getTime());
+  });
+
   test("accepts just the words of the id", () => {
     const { save } = setup();
     const created = save({ title: "t", kind: "ticket" }).task;
-    const { result, task } = save({ id: created.id.slice("20261001-".length), title: "u" });
+    const { result, task } = save({ id: idWords(created.id), title: "u" });
     expect(result).toBe("updated");
     expect(task.id).toBe(created.id);
     expect(task.title).toBe("u");
@@ -169,6 +178,18 @@ describe("dedupe by ref", () => {
     expect(commands.show(ctx, b.id).task).toEqual(b);
   });
 
+  test("with id, every other task that owns one of the refs is reported", () => {
+    const { save } = setup();
+    const a = save({ title: "a", kind: "ticket" }).task;
+    const b = save({ title: "b", kind: "ticket", refs: ["abc-1"] }).task;
+    const c = save({ title: "c", kind: "ticket", refs: ["abc-2"] }).task;
+
+    const error = errorOf(() => save({ id: a.id, refs: ["abc-1", "abc-2"] }));
+
+    expect(error.code).toBe("ref_conflict");
+    expect(error.details.candidates).toEqual([b.id, c.id].sort());
+  });
+
   test("id together with that task's own ref is fine", () => {
     const { save } = setup();
     const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
@@ -197,6 +218,17 @@ describe("--remove-ref", () => {
     expect(errorOf(() => save({ id: a.id, refs: ["abc-1"] }, ["abc-1"])).code).toBe("invalid_input");
   });
 
+  test("without a task to remove from, it is an error and nothing is created", () => {
+    const { ctx, save } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
+
+    expect(errorOf(() => save({ title: "b", kind: "ticket" }, ["abc-1"])).code).toBe("invalid_input");
+    expect(errorOf(() => save({}, ["abc-1"])).code).toBe("invalid_input");
+
+    expect(commands.list(ctx, { all: true }).tasks).toHaveLength(1);
+    expect(commands.find(ctx, "abc-1").task.id).toBe(a.id);
+  });
+
   test("removing a ref the task does not have does nothing", () => {
     const { save } = setup();
     const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
@@ -216,6 +248,19 @@ describe("find", () => {
     const { ctx, save } = setup();
     save({ title: "Investigate", kind: "bug-investigation", refs: [PR] });
     expect(errorOf(() => commands.find(ctx, "example-org/example-repo#483")).code).toBe("not_found");
+  });
+
+  test("is ref_conflict when hand-edited files put the ref on two tasks", () => {
+    const { ctx, save } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
+    const b = save({ title: "b", kind: "ticket" }).task;
+    const file = taskFile(ctx.home, b.id);
+    writeFileSync(file, readFileSync(file, "utf8").replace(/---\n$/, "refs:\n  - linear:ABC-1\n---\n"));
+
+    const error = errorOf(() => commands.find(ctx, "abc-1"));
+
+    expect(error.code).toBe("ref_conflict");
+    expect(error.details.candidates).toEqual([a.id, b.id].sort());
   });
 
   test("is invalid_ref when the ref cannot be normalized", () => {

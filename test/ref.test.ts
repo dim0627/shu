@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ShuError } from "../src/errors";
 import { normalizeRef } from "../src/ref";
+import { codeOf } from "./helpers";
 
 describe("ref normalization", () => {
   test.each([
@@ -59,16 +59,15 @@ describe("ref normalization", () => {
     "example-org/example-repo#0",
     "abc-0",
     "ftp://example.com/file",
+    "mailto:someone@example.com",
+    "https://github.com/example-org/example-repo/pull/0",
+    "https://github.com/example-org/example-repo/issues/99999999999999999999",
+    "https://linear.app/example-ws/issue/ABC-0/some-title",
     "github:abc-123",
     "linear:example-org/example-repo#482",
     "url:https://github.com/example-org/example-repo/pull/482",
     "slack:https://example.com/not-slack",
   ])("input that cannot be normalized is an error: %p", (input) => {
-    expect(() => normalizeRef(input)).toThrow(ShuError);
-    try {
-      normalizeRef(input);
-    } catch (e) {
-      expect((e as ShuError).code).toBe("invalid_ref");
-    }
+    expect(codeOf(() => normalizeRef(input))).toBe("invalid_ref");
   });
 });

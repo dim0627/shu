@@ -1,21 +1,37 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import type { ShuError } from "../src/errors";
+import * as commands from "../src/commands";
 import { parseLog } from "../src/log";
-import { globalLock, withLock } from "../src/store";
+import { globalLock, taskFile, withLock } from "../src/store";
 import { parseTaskFile } from "../src/task";
-import { cleanupHomes, run, shu, shuJson, tempHome } from "./helpers";
+import { cleanupHomes, codeOf, create, logMessage, run, shu, shuJson, tempHome, testCtx } from "./helpers";
+
+// These tests start many bun subprocesses; the 5s default is too tight on a loaded machine
+setDefaultTimeout(30_000);
 
 afterEach(cleanupHomes);
 
 const CREATE_WORKER = join(import.meta.dir, "fixtures/create-worker.ts");
 const LOOP_WORKER = join(import.meta.dir, "fixtures/loop-worker.ts");
+const LOCK_WORKER = join(import.meta.dir, "fixtures/lock-worker.ts");
 
 const times = <T>(n: number, fn: (i: number) => Promise<T>) => Promise.all(Array.from({ length: n }, (_, i) => fn(i)));
 
-async function create(home: string, input: Record<string, unknown>): Promise<string> {
-  return (await shuJson(home, ["save"], JSON.stringify(input))).json.task.id;
+function makeStale(path: string): void {
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(path, old, old);
 }
 
 describe("several processes at once", () => {
@@ -53,6 +69,28 @@ describe("several processes at once", () => {
     const { json } = await shuJson(home, ["list", "--all"]);
     const refs = json.tasks.flatMap((task: { refs: string[] }) => task.refs);
     expect(new Set(refs).size).toBe(refs.length);
+  });
+
+  test("adding a ref by id and creating a task with the same ref never leave the ref on two tasks", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+
+    const results = await Promise.all([
+      ...Array.from({ length: 4 }, () => shuJson(home, ["save"], JSON.stringify({ id, refs: ["abc-1"] }))),
+      ...Array.from({ length: 4 }, (_, i) =>
+        shuJson(home, ["save"], JSON.stringify({ title: `n${i}`, kind: "ticket", refs: ["abc-1"] })),
+      ),
+    ]);
+
+    for (const r of results) {
+      if (r.exitCode !== 0) expect(r.json.error.code).toBe("ref_conflict");
+    }
+    const { json } = await shuJson(home, ["list", "--all"]);
+    const owners = json.tasks.filter((task: { refs: string[] }) => task.refs.includes("linear:ABC-1"));
+    expect(owners).toHaveLength(1);
+    for (const r of results.slice(4)) {
+      if (r.exitCode === 0) expect(r.json.task.id).toBe(owners[0].id);
+    }
   });
 
   test("simultaneous creations get distinct IDs", async () => {
@@ -107,7 +145,7 @@ describe("several processes at once", () => {
     expect(task.refs).toHaveLength(6);
   });
 
-  test("readers never see a half-written task.md", async () => {
+  test("readers running alongside writers always get a valid task", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });
 
@@ -126,7 +164,23 @@ describe("several processes at once", () => {
     expect(readdirSync(join(home, "tasks", id))).toEqual(["task.md"]);
   });
 
-  test("simultaneous appends leave every log entry whole and unmixed", async () => {
+  test("appends from several processes in tight loops lose and mix nothing", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const authors = ["agent-a", "agent-b", "agent-c", "agent-d"];
+
+    const results = await Promise.all(authors.map((author) => run(home, LOOP_WORKER, ["log", id, "50", author])));
+
+    expect(results.map((r) => r.stderr)).toEqual(Array(4).fill(""));
+    const entries = parseLog(readFileSync(join(home, "tasks", id, "log.md"), "utf8"));
+    expect(entries).toHaveLength(200);
+    for (const author of authors) {
+      const messages = entries.filter((entry) => entry.author === author).map((entry) => entry.message);
+      expect(messages).toEqual(Array.from({ length: 50 }, (_, i) => logMessage(author, i)));
+    }
+  });
+
+  test("simultaneous shu log commands leave every entry whole", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });
     const message = (i: number) => `entry ${i} ☕\n${`${i}`.repeat(2000)}\nend ${i}`;
@@ -161,22 +215,33 @@ describe("several processes at once", () => {
   });
 });
 
+describe("writing task.md", () => {
+  test("replaces the file instead of rewriting it, so an open reader keeps the complete old version", () => {
+    const ctx = testCtx();
+    const { task } = commands.save(ctx, JSON.stringify({ title: "before", kind: "ticket", body: "body\n".repeat(5000) }));
+    const file = taskFile(ctx.home, task.id);
+    const before = readFileSync(file, "utf8");
+    const inode = statSync(file).ino;
+    const reader = openSync(file, "r");
+    try {
+      commands.save(ctx, JSON.stringify({ id: task.id, title: "after", body: "" }));
+
+      expect(readFileSync(reader, "utf8")).toBe(before);
+      expect(statSync(file).ino).not.toBe(inode);
+      expect(parseTaskFile(readFileSync(file, "utf8"), task.id)).toMatchObject({ title: "after", body: "" });
+    } finally {
+      closeSync(reader);
+    }
+  });
+});
+
 describe("locks", () => {
   const options = { retryMs: 5, timeoutMs: 200, staleMs: 10_000 };
 
-  function codeOf(fn: () => unknown): string | undefined {
-    try {
-      fn();
-    } catch (e) {
-      return (e as ShuError).code;
-    }
-    return undefined;
-  }
-
   test("is released when the work finishes, even if it throws", () => {
-    const lock = join(tempHome(), ".lock");
+    const dir = tempHome();
+    const lock = join(dir, ".lock");
     expect(withLock(lock, () => existsSync(lock), options)).toBe(true);
-    expect(existsSync(lock)).toBe(false);
     expect(() =>
       withLock(
         lock,
@@ -186,7 +251,7 @@ describe("locks", () => {
         options,
       ),
     ).toThrow("failed");
-    expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   test("cannot be taken while another process holds it, and gives up after the timeout", () => {
@@ -198,19 +263,69 @@ describe("locks", () => {
     expect(readFileSync(lock, "utf8")).toBe("someone-else");
   });
 
-  test("a stale lock can be stolen", () => {
-    const lock = join(tempHome(), ".lock");
+  test("a stale lock is taken over", () => {
+    const dir = tempHome();
+    const lock = join(dir, ".lock");
     writeFileSync(lock, "crashed-process");
-    const old = new Date(Date.now() - 60_000);
-    utimesSync(lock, old, old);
+    makeStale(lock);
     expect(withLock(lock, () => readFileSync(lock, "utf8"), options)).not.toBe("crashed-process");
-    expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
-  test("a holder whose lock was stolen does not remove the thief's lock", () => {
+  test("a guard left behind by a crashed takeover does not block the lock forever", () => {
+    const dir = tempHome();
+    const lock = join(dir, ".lock");
+    writeFileSync(lock, "crashed-process");
+    writeFileSync(`${lock}.steal`, "crashed-takeover");
+    makeStale(lock);
+    makeStale(`${lock}.steal`);
+    expect(withLock(lock, () => "done", options)).toBe("done");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  test("a holder whose lock was taken over does not remove the new holder's lock", () => {
     const lock = join(tempHome(), ".lock");
-    withLock(lock, () => writeFileSync(lock, "thief"), options);
-    expect(readFileSync(lock, "utf8")).toBe("thief");
+    withLock(lock, () => writeFileSync(lock, "new-holder"), options);
+    expect(readFileSync(lock, "utf8")).toBe("new-holder");
+  });
+
+  test("when several processes find the same stale lock, only one of them is inside at a time", async () => {
+    const dir = tempHome();
+    const rounds = 150;
+    for (let i = 0; i < rounds; i++) {
+      writeFileSync(join(dir, `lock-${i}`), "crashed-process");
+      makeStale(join(dir, `lock-${i}`));
+    }
+    const startAt = Date.now() + 500;
+
+    const results = await times(8, () => run(dir, LOCK_WORKER, ["contend", dir, String(rounds), String(startAt), "20"]));
+
+    expect(results.map((r) => r.stderr)).toEqual(Array(8).fill(""));
+    expect(results.map((r) => r.exitCode)).toEqual(Array(8).fill(0));
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  test("a holder that waits for another lock keeps its own lock from going stale", async () => {
+    const dir = tempHome();
+    const outer = join(dir, "outer");
+    const marker = join(dir, "inside");
+    const busy = join(dir, "busy");
+    mkdirSync(join(dir, "free"));
+    // Someone else holds the inner lock and stays alive for longer than the stale threshold
+    writeFileSync(busy, "someone-else");
+    const keepAlive = setInterval(() => utimesSync(busy, new Date(), new Date()), 50);
+    const staleMs = "300";
+
+    const first = run(dir, LOCK_WORKER, ["nested", outer, busy, marker, staleMs]);
+    await Bun.sleep(150);
+    const second = run(dir, LOCK_WORKER, ["nested", outer, join(dir, "free", "lock"), marker, staleMs]);
+    await Bun.sleep(1000);
+    clearInterval(keepAlive);
+    rmSync(busy);
+
+    const results = await Promise.all([first, second]);
+    expect(results.map((r) => r.stderr)).toEqual(["", ""]);
+    expect(results.map((r) => r.exitCode)).toEqual([0, 0]);
   });
 
   test("save waits for the global lock to be released, then proceeds", async () => {
@@ -230,8 +345,7 @@ describe("locks", () => {
   test("save works even if a crashed process left a stale global lock", async () => {
     const home = tempHome();
     writeFileSync(globalLock(home), "crashed-process");
-    const old = new Date(Date.now() - 60_000);
-    utimesSync(globalLock(home), old, old);
+    makeStale(globalLock(home));
 
     const { exitCode } = await shuJson(home, ["save"], '{"title":"t","kind":"ticket","refs":["abc-1"]}');
 

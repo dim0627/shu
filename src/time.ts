@@ -1,4 +1,6 @@
-const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+export const ISO_8601_PATTERN = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})`;
+
+const ISO_8601 = new RegExp(`^${ISO_8601_PATTERN}$`);
 
 const pad = (n: number, width = 2) => String(n).padStart(width, "0");
 
