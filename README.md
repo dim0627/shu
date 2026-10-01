@@ -17,6 +17,19 @@ SHU itself never touches the network and never calls an AI. It is deterministic 
 
 ## Install
 
+```sh
+curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh
+```
+
+This downloads the binary for your platform from the latest [release](https://github.com/dim0627/shu/releases), verifies its SHA-256 against the release's `checksums.txt`, and puts it at `~/.local/bin/shu`. macOS and Linux are supported, on arm64 and x64.
+
+| Variable | Effect |
+|---|---|
+| `SHU_VERSION` | Install this release tag (for example `v0.1.0`) instead of the latest. |
+| `SHU_INSTALL_DIR` | Install into this directory instead of `~/.local/bin`. |
+
+### From source
+
 Requires [Bun](https://bun.sh).
 
 ```sh
