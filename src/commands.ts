@@ -50,6 +50,7 @@ export interface Ctx {
 export type TaskSummary = Pick<Task, "id" | "title" | "kind" | "status" | "refs" | "created" | "updated">;
 export type TaskDetail = TaskSummary & Pick<Task, "body">;
 export type SaveResult = "created" | "updated" | "matched";
+export type KindCount = { kind: string; count: number };
 export type ArtifactSource = { path: string } | { data: Uint8Array };
 
 const DEFAULT_STATUSES: Status[] = ["open", "waiting"];
@@ -82,6 +83,15 @@ export function list(
     .filter((task) => kinds.length === 0 || kinds.includes(task.kind))
     .sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated) || b.id.localeCompare(a.id));
   return { tasks: tasks.map(summary) };
+}
+
+export function kinds(ctx: Ctx): { kinds: KindCount[] } {
+  const counts = new Map<string, number>();
+  for (const { kind } of loadTasks(ctx.home)) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  const kinds = [...counts]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || (a.kind < b.kind ? -1 : 1));
+  return { kinds };
 }
 
 export function show(ctx: Ctx, idInput: string): { task: TaskDetail; log: LogEntry[]; artifacts: string[] } {

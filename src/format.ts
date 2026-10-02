@@ -1,4 +1,4 @@
-import type { TaskDetail, TaskSummary } from "./commands";
+import type { KindCount, TaskDetail, TaskSummary } from "./commands";
 import type { LogEntry } from "./log";
 
 export function formatList(tasks: TaskSummary[]): string {
@@ -10,6 +10,12 @@ export function formatList(tasks: TaskSummary[]): string {
       [task.id.padEnd(id), task.status.padEnd(status), task.kind.padEnd(kind), task.title].join("  "),
     )
     .join("\n");
+}
+
+export function formatKinds(kinds: KindCount[]): string {
+  if (kinds.length === 0) return "No tasks";
+  const width = Math.max(...kinds.map(({ kind }) => kind.length));
+  return kinds.map(({ kind, count }) => `${kind.padEnd(width)}  ${count}`).join("\n");
 }
 
 export function formatTask(task: TaskDetail): string {
