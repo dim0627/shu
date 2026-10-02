@@ -16,6 +16,8 @@ If `shu` is missing: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/m
 
 ```sh
 shu list --json                                   # open and waiting tasks, newest first
+shu list --status todo --json                     # tasks that are not started
+shu kinds --json                                  # kinds in use: reuse one before adding a new one
 shu find --ref example-org/example-repo#482 --json   # is there already a task for this?
 shu show aoi-kitsune --json                       # metadata, body, log, artifact names
 
@@ -31,7 +33,8 @@ shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu pat
 
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
-  can never create a duplicate. Pass URLs as they are; SHU normalizes them.
+  can never create a duplicate. To sync many items, `save` each one directly.
+  Pass URLs as they are; SHU normalizes them.
 - **body**: the current summary. Each `save` that passes `body` replaces it.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a

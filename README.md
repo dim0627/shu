@@ -77,13 +77,14 @@ shu find --ref ABC-123
 
 | Command | What it does |
 |---|---|
-| `shu list [--status <s>]... [--kind <k>]... [--all]` | List tasks, most recently updated first. Shows `open` and `waiting` by default. |
+| `shu list [--status <s>]... [--kind <k>]... [--all]` | List tasks, most recently updated first. Shows `open` and `waiting` by default; `--status todo` shows what is not started. |
 | `shu show <id>` | Show a task: metadata, body, log entries, and artifact file names. |
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
 | `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
 | `shu path <id>` | Print the absolute path of the task directory. |
+| `shu kinds` | List the kinds in use, with the number of tasks of each. |
 
 Every command accepts `--json`. Run `shu --help` for the full usage text.
 
@@ -106,8 +107,8 @@ Updates are partial: only the fields you pass are changed. `refs` are added to t
 |---|---|
 | `id` | Assigned by SHU. Cannot be changed. |
 | `title` | One line, not empty. |
-| `kind` | Free-form, one line. Suggested values: `review`, `pr-followup`, `bug-investigation`, `alert-investigation`, `fix-request`, `ticket`. |
-| `status` | `open`, `waiting`, `done`, or `dropped`. |
+| `kind` | Free-form, one line. Suggested values: `review`, `pr-followup`, `bug-investigation`, `alert-investigation`, `fix-request`, `ticket`. `shu kinds` lists the ones already in use. |
+| `status` | `todo` (not started), `open` (in progress), `waiting` (blocked on someone else), `done`, or `dropped`. |
 | `refs` | Normalized references. Each reference belongs to at most one task. |
 | `created`, `updated` | Set by SHU. |
 

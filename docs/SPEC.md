@@ -59,8 +59,8 @@ updated: 2026-10-01T12:34:56+09:00
 |---|---|---|---|
 | `id` | string | ✓ | Assigned by SHU (§4). Cannot be changed by input |
 | `title` | string | ✓ | A one-line heading. Must not be empty |
-| `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket` |
-| `status` | enum | ✓ | `open` / `waiting` / `done` / `dropped` |
+| `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket`. `shu kinds` (§6.8) lists the kinds already in use, so that a writer can reuse one instead of adding a near-duplicate |
+| `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
 | `updated` | ISO 8601 | ✓ | Updated by SHU on every save |
@@ -144,6 +144,7 @@ Output shape with `--json`:
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
+| `kinds` | `{"kinds": [{"kind", "count"}]}` |
 | `--help`, or no command | `{"help": "<usage text>"}` |
 | `--version` | `{"version": "<version>"}` |
 
@@ -166,7 +167,7 @@ Error codes (`error.code`):
 
 ### 6.1 `shu list`
 
-Lists tasks. By default only those whose `status` is `open` or `waiting`.
+Lists tasks. By default only those whose `status` is `open` or `waiting`: the work in hand. Tasks that are not started (`todo`) are left out, so that a backlog saved in bulk does not bury it; `--status todo` lists them.
 
 | Option | Description |
 |---|---|
@@ -238,6 +239,12 @@ Stores (copies) a file as an artifact.
 ### 6.7 `shu path <id>`
 
 Prints the absolute path of the task directory. Agents use it to read artifacts directly.
+
+### 6.8 `shu kinds`
+
+Lists the kinds in use, with the number of tasks of each. Tasks of every status are counted.
+
+The order is descending by count (ascending by kind when the counts are equal).
 
 ## 7. Concurrency safety
 

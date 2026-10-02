@@ -4,7 +4,7 @@ import { normalizeRef } from "./ref";
 import { trimBlankEdges } from "./text";
 import { isIso8601 } from "./time";
 
-export const STATUSES = ["open", "waiting", "done", "dropped"] as const;
+export const STATUSES = ["todo", "open", "waiting", "done", "dropped"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export interface Task {

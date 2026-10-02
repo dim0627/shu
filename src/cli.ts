@@ -5,13 +5,14 @@ import { parseArgs, type ParseArgsConfig } from "node:util";
 import pkg from "../package.json";
 import * as commands from "./commands";
 import { ShuError } from "./errors";
-import { formatList, formatShow, formatTask } from "./format";
+import { formatKinds, formatList, formatShow, formatTask } from "./format";
 
 const HELP = `shu — a local task store for humans and AI agents
 
 Usage:
   shu list [--status <s>]... [--kind <k>]... [--all]
-      List tasks, most recently updated first (open / waiting by default)
+      List tasks, most recently updated first (open / waiting by default;
+      --status todo for what is not started)
   shu show <id>
       Show a task: metadata, body, log entries, and artifact file names
   shu save [--remove-ref <ref>]...
@@ -30,6 +31,8 @@ Usage:
       Copy a file into the task (<file> of - reads standard input; needs --name)
   shu path <id>
       Print the absolute path of the task directory
+  shu kinds
+      List the kinds in use, with the number of tasks of each
 
 Common options:
   --json       Print only JSON to standard output (errors as {"error": {"code", "message"}})
@@ -38,7 +41,10 @@ Common options:
   --version    Show the version
 
 <id>     The full ID (20261001-aoi-kitsune) or just its words (aoi-kitsune)
-status   open / waiting / done / dropped
+kind     Free-form. Reuse one that "shu kinds" lists before adding a new one. Suggested:
+         review / pr-followup / bug-investigation / alert-investigation / fix-request / ticket
+status   todo (not started) / open (in progress) / waiting (blocked on someone else) /
+         done / dropped
 <ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>, url:<URL>
          (URLs and short forms such as owner/repo#482 or abc-123 are normalized)
 Storage  ~/.shu (override with the SHU_HOME environment variable)`;
@@ -68,6 +74,7 @@ const COMMAND_OPTIONS: Record<string, Options> = {
   log: { author: { type: "string" } },
   artifact: { name: { type: "string" }, force: { type: "boolean" } },
   path: {},
+  kinds: {},
 };
 
 const ALL_OPTIONS: Options = Object.assign({}, GLOBAL_OPTIONS, ...Object.values(COMMAND_OPTIONS));
@@ -174,6 +181,11 @@ async function dispatch(argv: string[]): Promise<Output> {
       expectPositionals(positionals, 1, 1, "path <id>");
       const data = commands.path(ctx, positionals[0]);
       return { data, text: data.path };
+    }
+    case "kinds": {
+      expectPositionals(positionals, 0, 0, "kinds");
+      const data = commands.kinds(ctx);
+      return { data, text: formatKinds(data.kinds) };
     }
     default:
       throw usage(`unknown command: ${command}`);
