@@ -31,9 +31,11 @@ import {
 } from "./store";
 import {
   applyUpdate,
+  differingFields,
   parseSaveInput,
   type SaveInput,
   serializeTask,
+  type SkippedField,
   type Status,
   STATUSES,
   type Task,
@@ -128,7 +130,7 @@ export function save(
   ctx: Ctx,
   inputText: string,
   removeRefInputs: string[] = [],
-): { result: SaveResult; task: TaskDetail } {
+): { result: SaveResult; task: TaskDetail; skipped: SkippedField[] } {
   const input = parseSaveInput(inputText);
   const addRefs = unique((input.refs ?? []).map(normalizeRef));
   const removeRefs = unique(removeRefInputs.map(normalizeRef));
@@ -139,14 +141,17 @@ export function save(
 
   const run = () => {
     const target = findTarget(ctx.home, input.id, addRefs);
-    if (!target && removeRefs.length > 0) {
-      throw new ShuError("invalid_input", "--remove-ref needs an existing task: give its id or one of its refs");
+    if (!target) {
+      if (removeRefs.length > 0) {
+        throw new ShuError("invalid_input", "--remove-ref needs an existing task: give its id or one of its refs");
+      }
+      const result: SaveResult = "created";
+      return { result, task: detail(createTask(ctx, input, addRefs)), skipped: [] };
     }
-    const task = target
-      ? updateTask(ctx, target.id, input, addRefs, removeRefs)
-      : createTask(ctx, input, addRefs);
-    const result: SaveResult = target?.result ?? "created";
-    return { result, task: detail(task) };
+    // Input without an id may have been written to create a task, so on a match it must not overwrite one
+    const matched = target.result === "matched";
+    const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, matched);
+    return { result: target.result, task: detail(task), skipped: matched ? differingFields(task, input) : [] };
   };
 
   // A save that leaves refs alone cannot affect dedupe, so it skips the global lock
@@ -181,12 +186,23 @@ function findTarget(
   return owners.length === 1 ? { id: owners[0].id, result: "matched" } : null;
 }
 
-function updateTask(ctx: Ctx, id: string, input: SaveInput, addRefs: string[], removeRefs: string[]): Task {
+function updateTask(
+  ctx: Ctx,
+  id: string,
+  input: SaveInput,
+  addRefs: string[],
+  removeRefs: string[],
+  refsOnly = false,
+): Task {
   const { home } = ctx;
   return withLock(taskLock(home, id), () => {
     // Read the clock only once the lock is held: a save that waited must not write an older `updated`
     const updated = formatLocalIso(ctx.now());
-    const next = applyUpdate(readTask(home, id), input, addRefs, removeRefs, updated);
+    const task = readTask(home, id);
+    const next = applyUpdate(task, input, addRefs, removeRefs, updated);
+    // Running a sync again must not reorder the list, so a matched save that changes no ref writes nothing
+    const sameRefs = next.refs.length === task.refs.length && next.refs.every((ref, i) => ref === task.refs[i]);
+    if (refsOnly && sameRefs) return task;
     writeFileAtomic(taskFile(home, id), serializeTask(next));
     return next;
   });

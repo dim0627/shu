@@ -4,7 +4,7 @@ import { join } from "node:path";
 import * as commands from "../src/commands";
 import { idWords } from "../src/id";
 import { STATUSES } from "../src/task";
-import { cleanupHomes, create, shu, shuJson, tempHome } from "./helpers";
+import { cleanupHomes, create, shu, shuJson, tempHome, testCtx } from "./helpers";
 
 // Every test here starts bun subprocesses; the 5s default is too tight on a loaded machine
 setDefaultTimeout(30_000);
@@ -24,8 +24,9 @@ describe("--json output shape (the contract)", () => {
     );
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(Object.keys(json)).toEqual(["result", "task"]);
+    expect(Object.keys(json)).toEqual(["result", "task", "skipped"]);
     expect(json.result).toBe("created");
+    expect(json.skipped).toEqual([]);
     expect(Object.keys(json.task)).toEqual(DETAIL_KEYS);
     expect(json.task).toMatchObject({
       title: "Investigate",
@@ -100,7 +101,6 @@ describe("--json output shape (the contract)", () => {
     expect(exitCode).toBe(0);
     expect(json).toEqual({ id, path: join(home, "tasks", id) });
   });
-});
 
   test("kinds", async () => {
     const home = tempHome();
@@ -129,6 +129,7 @@ describe("--json output shape (the contract)", () => {
     expect(version.exitCode).toBe(0);
     expect(version.json).toEqual({ version: expect.stringMatching(/^\d+\.\d+\.\d+$/) });
   });
+});
 
 describe("errors", () => {
   test("with --json, only the error goes to stdout and the exit code is non-zero", async () => {
@@ -261,9 +262,20 @@ describe("list", () => {
   });
 
   test("a todo task is listed only when asked for, however recently it was saved", async () => {
-    const { ids, listed } = await setup();
-    expect(await listed()).not.toContain(ids.todo);
-    expect(await listed("--status", "todo")).toEqual([ids.todo]);
+    const { ids, save, listed } = await setup();
+    const fresh = save({ title: "Just added", kind: "ticket", status: "todo" });
+    expect(await listed()).toEqual([ids.ticket, ids.waiting, ids.review]);
+    expect(await listed("--status", "todo")).toEqual([fresh, ids.todo]);
+  });
+
+  test("an empty default list says how many todo tasks it leaves out", async () => {
+    const home = tempHome();
+    expect((await shu(home, ["list"])).stdout).toBe("No tasks\n");
+    await create(home, { title: "Later", kind: "ticket", status: "todo" });
+    expect((await shu(home, ["list"])).stdout).toBe("No open or waiting tasks (1 todo: shu list --status todo)\n");
+    expect((await shu(home, ["list", "--kind", "review"])).stdout).toBe("No tasks\n");
+    expect((await shu(home, ["list", "--status", "done"])).stdout).toBe("No tasks\n");
+    expect((await shuJson(home, ["list"])).json).toEqual({ tasks: [] });
   });
 
   test("--kind can be repeated and combines with the status filter", async () => {
@@ -289,25 +301,35 @@ describe("list", () => {
 });
 
 describe("kinds", () => {
-  test("counts tasks of every status, most used first, then by name", async () => {
+  test("counts tasks of every status, most used first", async () => {
     const home = tempHome();
     await create(home, { title: "a", kind: "ticket" });
-    await create(home, { title: "b", kind: "review", status: "done" });
-    await create(home, { title: "c", kind: "review", status: "todo" });
-    await create(home, { title: "d", kind: "bug" });
+    for (const status of STATUSES) await create(home, { title: status, kind: "review", status });
     expect((await shuJson(home, ["kinds"])).json.kinds).toEqual([
-      { kind: "review", count: 2 },
-      { kind: "bug", count: 1 },
+      { kind: "review", count: STATUSES.length },
       { kind: "ticket", count: 1 },
     ]);
   });
 
-  test("the human-readable output is one kind per line", async () => {
+  test("kinds with the same count are ordered by code unit, not by task ID", () => {
+    let random = 0;
+    const ctx = testCtx({ random: () => random });
+    const ids = (["ticket", "Ticket", "bug"] as const).map((kind, i) => {
+      random = i * 0.49;
+      return commands.save(ctx, JSON.stringify({ title: kind, kind })).task.id;
+    });
+    // Tasks are read in ID order, so this order is what the result would be without the tie-break
+    expect(ids).toEqual([...ids].sort());
+    expect(commands.kinds(ctx).kinds.map(({ kind }) => kind)).toEqual(["Ticket", "bug", "ticket"]);
+  });
+
+  test("the human-readable output is one kind per line, with the counts in one column", async () => {
     const home = tempHome();
-    await create(home, { title: "a", kind: "ticket" });
-    await create(home, { title: "b", kind: "review" });
-    await create(home, { title: "c", kind: "review" });
-    expect((await shu(home, ["kinds"])).stdout).toBe("review  2\nticket  1\n");
+    await create(home, { title: "a", kind: "bug" });
+    await create(home, { title: "b", kind: "pr-followup" });
+    await create(home, { title: "c", kind: "pr-followup" });
+    await create(home, { title: "d", kind: "レビュー" });
+    expect((await shu(home, ["kinds"])).stdout).toBe("pr-followup  2\nbug          1\nレビュー     1\n");
     expect((await shu(tempHome(), ["kinds"])).stdout).toBe("No tasks\n");
   });
 });
@@ -337,7 +359,19 @@ describe("save", () => {
     const { stdout } = await shu(home, ["save"], '{"title":"t","kind":"ticket","refs":["abc-1"]}');
     expect(stdout).toMatch(/^created \d{8}-[a-z]+-[a-z]+\n$/);
     const again = await shu(home, ["save"], '{"refs":["abc-1"]}');
-    expect(again.stdout).toStartWith("matched ");
+    expect(again.stdout).toMatch(/^matched \d{8}-[a-z]+-[a-z]+\n$/);
+  });
+
+  test("a matched save reports the fields it did not apply", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket", refs: ["abc-1"] });
+    const input = '{"title":"u","kind":"ticket","status":"todo","refs":["abc-1"]}';
+    expect((await shu(home, ["save"], input)).stdout).toBe(
+      `matched ${id} (not applied: title, status; save with the id to apply)\n`,
+    );
+    const { json } = await shuJson(home, ["save"], input);
+    expect(json.skipped).toEqual(["title", "status"]);
+    expect(json.task).toMatchObject({ id, title: "t", status: "open" });
   });
 });
 
@@ -462,9 +496,15 @@ describe("help", () => {
     }
   });
 
-  test("the usage names every status and the suggested kinds", async () => {
+  test("the usage names the kinds command, every status, and the suggested kinds", async () => {
     const { stdout } = await shu(tempHome(), ["--help"]);
-    for (const word of [...STATUSES, "pr-followup", "shu kinds"]) expect(stdout).toContain(word);
+    // The entry for a term: its line and the indented lines that continue it
+    const entry = (term: string) => stdout.match(new RegExp(`^${term} .*(?:\\n {2,}.*)*`, "m"))?.[0] ?? "";
+    expect(stdout).toMatch(/^  shu kinds$/m);
+    for (const status of STATUSES) expect(entry("status")).toContain(status);
+    for (const kind of ["review", "pr-followup", "bug-investigation", "alert-investigation", "fix-request", "ticket"]) {
+      expect(entry("kind")).toContain(kind);
+    }
   });
 
   test("--version", async () => {
