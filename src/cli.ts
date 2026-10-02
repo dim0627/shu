@@ -18,9 +18,13 @@ Usage:
   shu save [--remove-ref <ref>]...
       Create or update a task from JSON on standard input
         {"id": "...", "title": "...", "kind": "...", "status": "...", "refs": ["..."], "body": "..."}
-      With id, that task is updated. Without id, a task that already owns one of
-      refs is updated; otherwise a new task is created (title and kind required).
-      refs are added to the existing ones
+      With id, that task is updated: only the given fields change, and refs are
+      added to the existing ones.
+      Without id, a task that already owns one of refs is matched: its refs are
+      merged and nothing else changes. "skipped" lists the fields that were not
+      applied; save again with the id to apply them.
+      Otherwise a new task is created (title and kind required; status defaults
+      to open, so pass todo for work that is not started)
   shu find --ref <ref>
       Look up the task that owns a ref
   shu log <id> [message] [--author <name>]
@@ -138,12 +142,19 @@ async function dispatch(argv: string[]): Promise<Output> {
   switch (command) {
     case "list": {
       expectPositionals(positionals, 0, 0, "list [--status <s>]... [--kind <k>]... [--all]");
+      const kinds = values.kind as string[] | undefined;
       const data = commands.list(ctx, {
         statuses: values.status as string[] | undefined,
-        kinds: values.kind as string[] | undefined,
+        kinds,
         all: values.all as boolean | undefined,
       });
-      return { data, text: formatList(data.tasks) };
+      // An empty default list must not read as an empty store while todo tasks are left out of it
+      const unfiltered = values.status === undefined && !values.all;
+      const todo =
+        unfiltered && data.tasks.length === 0 ? commands.list(ctx, { statuses: ["todo"], kinds }).tasks.length : 0;
+      const text =
+        todo > 0 ? `No open or waiting tasks (${todo} todo: shu list --status todo)` : formatList(data.tasks);
+      return { data, text };
     }
     case "show": {
       expectPositionals(positionals, 1, 1, "show <id>");
@@ -153,7 +164,9 @@ async function dispatch(argv: string[]): Promise<Output> {
     case "save": {
       expectPositionals(positionals, 0, 0, "save [--remove-ref <ref>]...  (JSON on standard input)");
       const data = commands.save(ctx, await Bun.stdin.text(), (values["remove-ref"] as string[]) ?? []);
-      return { data, text: `${data.result} ${data.task.id}` };
+      const skipped =
+        data.skipped.length > 0 ? ` (not applied: ${data.skipped.join(", ")}; save with the id to apply)` : "";
+      return { data, text: `${data.result} ${data.task.id}${skipped}` };
     }
     case "find": {
       expectPositionals(positionals, 0, 0, "find --ref <ref>");

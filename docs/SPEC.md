@@ -63,13 +63,14 @@ updated: 2026-10-01T12:34:56+09:00
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
-| `updated` | ISO 8601 | ✓ | Updated by SHU on every save |
+| `updated` | ISO 8601 | ✓ | Updated by SHU on every save that writes the task (a matched save that changes no ref writes nothing, §6.3) |
 
 Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept.
 
 - `title` and `kind` are single-line strings with no line breaks
 - If a `task.md` that is read does not match this format (for example, after being edited by hand), the task is not silently skipped; it is an error (`invalid_task`). Skipping it would remove its refs from the dedupe check and lead to duplicate tasks
 - A task directory without a `task.md` is considered mid-creation and is treated as if it did not exist
+- A build of SHU reads only the statuses it knows. A task whose status was added by a newer build is `invalid_task` to an older build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before saving a task with a new status
 
 ### 3.2 log.md
 
@@ -129,7 +130,7 @@ Common to all commands:
 
 - Every command accepts `--json`. With it, only JSON is written to standard output (no human-oriented decoration is mixed in)
 - On failure the exit code is non-zero. With `--json`, the error is also written to standard output as `{"error": {"code": "...", "message": "..."}}`
-- The shape of the JSON stays compatible (fields are not removed and their types do not change)
+- The shape of the JSON stays compatible (fields are not removed and their types do not change). Fields and enum values (such as a `status`) may be added, so a consumer must tolerate the ones it does not know
 - Human-oriented errors go to standard error (nothing is written to standard output)
 - Options may come before or after the command. `--` ends the options: everything after it is a positional argument, even if it looks like an option
 
@@ -139,7 +140,7 @@ Output shape with `--json`:
 |---|---|
 | `list` | `{"tasks": [<task>]}` (without `body`) |
 | `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "artifacts": ["<file name>"]}` |
-| `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>}` |
+| `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
 | `find` | `{"task": <task>}` |
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
@@ -167,7 +168,7 @@ Error codes (`error.code`):
 
 ### 6.1 `shu list`
 
-Lists tasks. By default only those whose `status` is `open` or `waiting`: the work in hand. Tasks that are not started (`todo`) are left out, so that a backlog saved in bulk does not bury it; `--status todo` lists them.
+Lists tasks. By default only those whose `status` is `open` or `waiting`: the work in hand. Tasks that are not started (`todo`) are left out, so that a backlog saved in bulk does not bury it; `--status todo` lists them. When the default list is empty and there are `todo` tasks, the human-readable output says how many, so that it does not read as an empty store.
 
 | Option | Description |
 |---|---|
@@ -199,13 +200,13 @@ Creates or updates a task (upsert). Takes JSON from standard input.
 How the target task is chosen:
 
 1. If `id` is given, that task is updated (an error if it does not exist)
-2. If `id` is not given and any of `refs` belongs to an existing task, that task is updated (**dedupe**)
+2. If `id` is not given and any of `refs` belongs to an existing task, the save resolves to that task (**dedupe**) and is a matched save (see below)
 3. If `refs` belong to **two or more different existing tasks**, it is an error (tasks are never merged automatically). When `id` is given, it is also an error if any of `refs` belongs to **another task** (to keep "a ref belongs to at most one task" from §5)
-4. If none of the above applies, a new task is created (`title` and `kind` are required; `status` defaults to `open`)
+4. If none of the above applies, a new task is created (`title` and `kind` are required; `status` defaults to `open`, so work that is not started is saved with `todo`)
 
 Update rules:
 
-- Only the given fields are updated (partial update)
+- With `id`, only the given fields are updated (partial update)
 - `refs` are **added to the existing ones** (not replaced). A ref is removed explicitly with `--remove-ref <ref>`
 - `id` and `created` cannot be changed
 - The only input fields are `id` / `title` / `kind` / `status` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
@@ -213,7 +214,13 @@ Update rules:
 - `--remove-ref` is not used to choose the target task. If the save does not resolve to an existing task (by `id` or by `refs`), `--remove-ref` is an error and no task is created
 - An empty `body` clears the body
 
-The output includes a field that tells whether the task was created, updated, or matched by dedupe (`"result": "created" | "updated" | "matched"`).
+Matched saves (a save without `id` that resolves to an existing task):
+
+- **Only refs change.** The input's `refs` are added and `--remove-ref` is applied. `title`, `kind`, `status`, and `body` are not applied. Input written to create a task therefore never overwrites a task that already exists, and a sync can be run again without moving a task back to an earlier status
+- The output names, in `skipped`, the input fields whose value differs from the stored one. To apply them, save again with the `id`
+- A matched save that changes no ref writes nothing: the task stays as it is, including `updated`
+
+The output includes a field that tells whether the task was created, updated, or matched by dedupe (`"result": "created" | "updated" | "matched"`). `skipped` is an empty array unless the save matched.
 
 ### 6.4 `shu find --ref <ref>`
 
@@ -244,7 +251,7 @@ Prints the absolute path of the task directory. Agents use it to read artifacts 
 
 Lists the kinds in use, with the number of tasks of each. Tasks of every status are counted.
 
-The order is descending by count (ascending by kind when the counts are equal).
+The order is descending by count. Kinds with the same count are in ascending order, compared by UTF-16 code unit (so uppercase sorts before lowercase), which does not depend on the locale.
 
 ## 7. Concurrency safety
 

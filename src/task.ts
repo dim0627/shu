@@ -138,6 +138,20 @@ export function parseSaveInput(text: string): SaveInput {
   };
 }
 
+export type SkippedField = "title" | "kind" | "status" | "body";
+
+export function differingFields(task: Task, input: SaveInput): SkippedField[] {
+  const given = {
+    title: input.title,
+    kind: input.kind,
+    status: input.status,
+    body: input.body === undefined ? undefined : trimBlankEdges(input.body),
+  };
+  return (Object.keys(given) as SkippedField[]).filter(
+    (key) => given[key] !== undefined && given[key] !== task[key],
+  );
+}
+
 export function applyUpdate(
   task: Task,
   input: SaveInput,

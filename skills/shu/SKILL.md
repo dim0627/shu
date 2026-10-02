@@ -16,7 +16,7 @@ If `shu` is missing: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/m
 
 ```sh
 shu list --json                                   # open and waiting tasks, newest first
-shu list --status todo --json                     # tasks that are not started
+shu list --status todo --json                     # tasks saved with "status": "todo" (not started)
 shu kinds --json                                  # kinds in use: reuse one before adding a new one
 shu find --ref example-org/example-repo#482 --json   # is there already a task for this?
 shu show aoi-kitsune --json                       # metadata, body, log, artifact names
@@ -24,6 +24,7 @@ shu show aoi-kitsune --json                       # metadata, body, log, artifac
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
        "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
 echo '{"id": "aoi-kitsune", "status": "waiting", "body": "Current summary."}' | shu save --json
+echo '{"id": "aoi-kitsune", "status": "open"}' | shu save --json   # when you start a todo task
 
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
@@ -33,9 +34,8 @@ shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu pat
 
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
-  can never create a duplicate. To sync many items, `save` each one directly.
-  Pass URLs as they are; SHU normalizes them.
-- **body**: the current summary. Each `save` that passes `body` replaces it.
+  can never create a duplicate. Pass URLs as they are; SHU normalizes them.
+- **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a
   new entry.
@@ -50,6 +50,9 @@ tell you again, such as a PR's review state or CI result: fetch that fresh.
 - Take the task ID from the `--json` output of `save`, `find`, or `list`.
 - Collecting information (GitHub, Linear, Slack) is your job, with your own
   tools. SHU stays offline and only stores what you hand it.
+- `"result": "matched"` means the task already existed: `save` merged the refs
+  and applied nothing else, and `skipped` names the fields it left alone. Read
+  the task with `show`, then update it by `id`.
 - `find` exits non-zero with `not_found` when no task owns the ref: that is the
   answer "no task yet", so create one with `save`.
 - `ref_conflict` means the refs belong to different tasks. SHU never merges

@@ -1,21 +1,23 @@
 import type { KindCount, TaskDetail, TaskSummary } from "./commands";
 import type { LogEntry } from "./log";
 
+// padEnd counts UTF-16 units, which misaligns full-width and combining characters
+const widest = (texts: string[]) => Math.max(...texts.map((text) => Bun.stringWidth(text)));
+const pad = (text: string, width: number) => text + " ".repeat(width - Bun.stringWidth(text));
+
 export function formatList(tasks: TaskSummary[]): string {
   if (tasks.length === 0) return "No tasks";
-  const width = (key: "id" | "status" | "kind") => Math.max(...tasks.map((task) => task[key].length));
+  const width = (key: "id" | "status" | "kind") => widest(tasks.map((task) => task[key]));
   const [id, status, kind] = [width("id"), width("status"), width("kind")];
   return tasks
-    .map((task) =>
-      [task.id.padEnd(id), task.status.padEnd(status), task.kind.padEnd(kind), task.title].join("  "),
-    )
+    .map((task) => [pad(task.id, id), pad(task.status, status), pad(task.kind, kind), task.title].join("  "))
     .join("\n");
 }
 
 export function formatKinds(kinds: KindCount[]): string {
   if (kinds.length === 0) return "No tasks";
-  const width = Math.max(...kinds.map(({ kind }) => kind.length));
-  return kinds.map(({ kind, count }) => `${kind.padEnd(width)}  ${count}`).join("\n");
+  const width = widest(kinds.map(({ kind }) => kind));
+  return kinds.map(({ kind, count }) => `${pad(kind, width)}  ${count}`).join("\n");
 }
 
 export function formatTask(task: TaskDetail): string {

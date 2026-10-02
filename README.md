@@ -57,9 +57,14 @@ echo '{
 }' | shu save
 # => created 20261001-aoi-kitsune
 
-# Saving again with the same reference updates that task instead of creating another.
-echo '{"refs": ["example-org/example-repo#482", "ABC-123"], "status": "waiting"}' | shu save
+# Saving again with the same reference finds that task instead of creating another,
+# and adds the new reference to it.
+echo '{"refs": ["example-org/example-repo#482", "ABC-123"]}' | shu save
 # => matched 20261001-aoi-kitsune
+
+# Update a task by its ID.
+echo '{"id": "aoi-kitsune", "status": "waiting"}' | shu save
+# => updated 20261001-aoi-kitsune
 
 # Record what happened.
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
@@ -95,11 +100,13 @@ Input fields: `id`, `title`, `kind`, `status`, `refs`, `body`. Any other field i
 The target task is chosen in this order:
 
 1. If `id` is given, that task is updated. It is an error if it does not exist.
-2. Otherwise, if any of `refs` already belongs to a task, that task is updated.
+2. Otherwise, if any of `refs` already belongs to a task, the save matches that task: its `refs` are merged and nothing else is changed.
 3. If `refs` belong to two or more different tasks, it is an error. SHU never merges tasks on its own.
-4. Otherwise a new task is created. `title` and `kind` are required; `status` defaults to `open`.
+4. Otherwise a new task is created. `title` and `kind` are required; `status` defaults to `open`, so pass `todo` for work that is not started.
 
-Updates are partial: only the fields you pass are changed. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
+A matched save never overwrites `title`, `kind`, `status`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference leaves the task untouched.
+
+Updates by `id` are partial: only the fields you pass are changed. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
 
 ### Task fields
 
@@ -161,11 +168,12 @@ With `--json`, a command prints JSON to standard output and nothing else. Field 
 |---|---|
 | `list` | `{"tasks": [<task>]}` (without `body`) |
 | `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "artifacts": ["<file name>"]}` |
-| `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>}` |
+| `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
 | `find` | `{"task": <task>}` |
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
+| `kinds` | `{"kinds": [{"kind", "count"}]}` |
 | `--help` | `{"help": "<usage text>"}` |
 | `--version` | `{"version": "<version>"}` |
 

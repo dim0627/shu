@@ -120,24 +120,64 @@ describe("updating by id", () => {
 });
 
 describe("dedupe by ref", () => {
-  test("without id, a ref owned by an existing task updates that task", () => {
-    const { save, taskCount } = setup();
-    const created = save({ title: "Investigate", kind: "bug-investigation", refs: [PR] }).task;
+  test("without id, a ref owned by an existing task matches it and overwrites nothing", () => {
+    const { ctx, save, taskCount, advance } = setup();
+    const created = save({ title: "Investigate", kind: "bug-investigation", refs: [PR], body: "Summary" }).task;
+    advance();
 
-    const { result, task } = save({ title: "Another spelling", kind: "review", refs: ["Example-Org/Example-Repo#482"] });
+    const { result, task, skipped } = save({
+      title: "Written to create a task",
+      kind: "review",
+      status: "todo",
+      body: "Another summary",
+      refs: ["Example-Org/Example-Repo#482"],
+    });
 
     expect(result).toBe("matched");
-    expect(task.id).toBe(created.id);
-    expect(task.title).toBe("Another spelling");
+    expect(task).toEqual(created);
+    expect(skipped).toEqual(["title", "kind", "status", "body"]);
+    expect(commands.show(ctx, created.id).task).toEqual(created);
     expect(taskCount()).toBe(1);
   });
 
-  test("a matched save needs neither title nor kind", () => {
-    const { save } = setup();
-    const created = save({ title: "Investigate", kind: "bug-investigation", refs: [PR] }).task;
-    const { result, task } = save({ refs: [PR], status: "done" });
+  test("a sync run again with status todo does not move a task back", () => {
+    const { ctx, save } = setup();
+    const input = { title: "Backlog item", kind: "ticket", status: "todo", refs: ["abc-1"] };
+    const created = save(input).task;
+    save({ id: created.id, status: "done" });
+
+    const { result, skipped } = save(input);
+
     expect(result).toBe("matched");
-    expect(task).toEqual({ ...created, status: "done" });
+    expect(skipped).toEqual(["status"]);
+    expect(commands.show(ctx, created.id).task.status).toBe("done");
+  });
+
+  test("skipped names only the fields that differ from the stored ones", () => {
+    const { save } = setup();
+    save({ title: "Investigate", kind: "bug-investigation", refs: [PR], body: "Summary" });
+    expect(save({ title: "Investigate", kind: "review", refs: [PR], body: "\nSummary\n" }).skipped).toEqual(["kind"]);
+    expect(save({ refs: [PR] }).skipped).toEqual([]);
+  });
+
+  test("a matched save that adds a ref updates the task; one that changes no ref writes nothing", () => {
+    const { ctx, save, advance } = setup();
+    const created = save({ title: "Investigate", kind: "bug-investigation", refs: [PR] }).task;
+    advance();
+
+    expect(save({ refs: [PR] }).task).toEqual(created);
+    expect(commands.show(ctx, created.id).task.updated).toBe(created.updated);
+
+    const added = save({ refs: [PR, "abc-123"] }).task;
+    expect(added.refs).toEqual([PR_REF, "linear:ABC-123"]);
+    expect(Date.parse(added.updated)).toBe(T1.getTime());
+  });
+
+  test("created and updated saves skip nothing", () => {
+    const { save } = setup();
+    const created = save({ title: "t", kind: "ticket", refs: ["abc-1"] });
+    expect(created.skipped).toEqual([]);
+    expect(save({ id: created.task.id, title: "u", refs: ["abc-1"] }).skipped).toEqual([]);
   });
 
   test("refs are added, not replaced (a Slack thread grows into a ticket, then a PR)", () => {
@@ -210,6 +250,14 @@ describe("--remove-ref", () => {
     const b = save({ title: "b", kind: "ticket", refs: ["abc-2"] });
     expect(b.result).toBe("created");
     expect(b.task.id).not.toBe(a.id);
+  });
+
+  test("a matched save removes a ref too", () => {
+    const { save } = setup();
+    save({ title: "a", kind: "ticket", refs: ["abc-1", "abc-2"] });
+    const { result, task } = save({ refs: ["abc-1"] }, ["abc-2"]);
+    expect(result).toBe("matched");
+    expect(task.refs).toEqual(["linear:ABC-1"]);
   });
 
   test("the same ref in refs and --remove-ref is an error", () => {
