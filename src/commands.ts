@@ -56,8 +56,16 @@ export type KindCount = { kind: string; count: number };
 export type ArtifactSource = { path: string } | { data: Uint8Array };
 
 const DEFAULT_STATUSES: Status[] = ["open", "waiting"];
+const FIELDS = ["title", "kind", "status", "body"] as const;
 
 const unique = <T>(items: T[]) => [...new Set(items)];
+
+function parseStatus(value: string): Status {
+  if (!STATUSES.includes(value as Status)) {
+    throw new ShuError("invalid_input", `status must be one of ${STATUSES.join(" / ")}: ${value}`);
+  }
+  return value as Status;
+}
 
 function summary({ id, title, kind, status, refs, created, updated }: Task): TaskSummary {
   return { id, title, kind, status, refs, created, updated };
@@ -75,11 +83,8 @@ export function list(
   if (all && statuses.length > 0) {
     throw new ShuError("invalid_input", "--all and --status cannot be used together");
   }
-  const unknown = statuses.find((status) => !STATUSES.includes(status as Status));
-  if (unknown !== undefined) {
-    throw new ShuError("invalid_input", `status must be one of ${STATUSES.join(" / ")}: ${unknown}`);
-  }
-  const wanted: readonly string[] = all ? STATUSES : statuses.length > 0 ? statuses : DEFAULT_STATUSES;
+  const given = statuses.map(parseStatus);
+  const wanted: readonly Status[] = all ? STATUSES : given.length > 0 ? given : DEFAULT_STATUSES;
   const tasks = loadTasks(ctx.home)
     .filter((task) => wanted.includes(task.status))
     .filter((task) => kinds.length === 0 || kinds.includes(task.kind))
@@ -150,7 +155,7 @@ export function save(
     }
     // Input without an id may have been written to create a task, so on a match it must not overwrite one
     const matched = target.result === "matched";
-    const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, matched);
+    const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, { skipUnchanged: matched });
     return { result: target.result, task: detail(task), skipped: matched ? differingFields(task, input) : [] };
   };
 
@@ -192,7 +197,7 @@ function updateTask(
   input: SaveInput,
   addRefs: string[],
   removeRefs: string[],
-  refsOnly = false,
+  { skipUnchanged = false } = {},
 ): Task {
   const { home } = ctx;
   return withLock(taskLock(home, id), () => {
@@ -200,9 +205,10 @@ function updateTask(
     const updated = formatLocalIso(ctx.now());
     const task = readTask(home, id);
     const next = applyUpdate(task, input, addRefs, removeRefs, updated);
-    // Running a sync again must not reorder the list, so a matched save that changes no ref writes nothing
+    // Running a sync or a status change again must not reorder the list, so one that changes nothing writes nothing
     const sameRefs = next.refs.length === task.refs.length && next.refs.every((ref, i) => ref === task.refs[i]);
-    if (refsOnly && sameRefs) return task;
+    const unchanged = sameRefs && FIELDS.every((key) => next[key] === task[key]);
+    if (skipUnchanged && unchanged) return task;
     writeFileAtomic(taskFile(home, id), serializeTask(next));
     return next;
   });
@@ -227,6 +233,14 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
   };
   writeFileAtomic(taskFile(ctx.home, task.id), serializeTask(task));
   return task;
+}
+
+export function setStatus(ctx: Ctx, statusInput: string, idInputs: string[]): { tasks: TaskSummary[] } {
+  const status = parseStatus(statusInput);
+  const ids = unique(idInputs.map((input) => resolveId(ctx.home, input)));
+  // A broken task.md must fail before the first write
+  for (const id of ids) readTask(ctx.home, id);
+  return { tasks: ids.map((id) => summary(updateTask(ctx, id, { status }, [], [], { skipUnchanged: true }))) };
 }
 
 export function find(ctx: Ctx, refInput: string): { task: TaskDetail } {

@@ -145,6 +145,25 @@ describe("several processes at once", () => {
     expect(task.refs).toHaveLength(6);
   });
 
+  test("simultaneous status changes and saves to the same tasks lose none of the updates", async () => {
+    const home = tempHome();
+    const ids = await Promise.all(Array.from({ length: 4 }, (_, i) => create(home, { title: `t${i}`, kind: "review" })));
+
+    const results = await Promise.all([
+      shuJson(home, ["status", "done", ...ids]),
+      ...ids.map((id, i) => shuJson(home, ["save"], JSON.stringify({ id, title: `updated ${i}` }))),
+      ...ids.map((id, i) => shuJson(home, ["save"], JSON.stringify({ id, refs: [`abc-${i + 1}`] }))),
+    ]);
+
+    expect(results.map((r) => r.exitCode)).toEqual(Array(9).fill(0));
+    const { tasks } = (await shuJson(home, ["list", "--all"])).json;
+    expect(tasks).toHaveLength(4);
+    for (const task of tasks) {
+      const i = ids.indexOf(task.id);
+      expect(task).toMatchObject({ status: "done", title: `updated ${i}`, refs: [`linear:ABC-${i + 1}`] });
+    }
+  });
+
   test("readers running alongside writers always get a valid task", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });

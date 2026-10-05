@@ -63,8 +63,12 @@ echo '{"refs": ["example-org/example-repo#482", "ABC-123"]}' | shu save
 # => matched 20261001-aoi-kitsune
 
 # Update a task by its ID.
-echo '{"id": "aoi-kitsune", "status": "waiting"}' | shu save
+echo '{"id": "aoi-kitsune", "body": "Waiting for the payment provider to reply."}' | shu save
 # => updated 20261001-aoi-kitsune
+
+# Change the status of one or more tasks.
+shu status waiting aoi-kitsune
+# => waiting 20261001-aoi-kitsune
 
 # Record what happened.
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
@@ -85,6 +89,7 @@ shu find --ref ABC-123
 | `shu list [--status <s>]... [--kind <k>]... [--all]` | List tasks, most recently updated first. Shows `open` and `waiting` by default; `--status todo` shows what is not started. |
 | `shu show <id>` | Show a task: metadata, body, log entries, and artifact file names. |
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
+| `shu status <status> <id>...` | Set the status of one or more tasks. Nothing is changed if any `<id>` does not name a task. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
 | `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
@@ -169,6 +174,7 @@ With `--json`, a command prints JSON to standard output and nothing else. Field 
 | `list` | `{"tasks": [<task>]}` (without `body`) |
 | `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "artifacts": ["<file name>"]}` |
 | `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
+| `status` | `{"tasks": [<task>]}` (without `body`) |
 | `find` | `{"task": <task>}` |
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |

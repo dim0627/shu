@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as commands from "../src/commands";
 import { idWords } from "../src/id";
-import { taskFile, taskLock, tasksDir } from "../src/store";
+import { taskDir, taskFile, taskLock, tasksDir } from "../src/store";
+import { STATUSES } from "../src/task";
 import { cleanupHomes, errorOf, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
@@ -281,6 +282,102 @@ describe("--remove-ref", () => {
     const { save } = setup();
     const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
     expect(save({ id: a.id }, ["abc-9"]).task.refs).toEqual(["linear:ABC-1"]);
+  });
+});
+
+describe("status", () => {
+  const statusOf = (ctx: commands.Ctx, id: string) => commands.show(ctx, id).task.status;
+
+  test("changes only the status and updated, and leaves the other tasks alone", () => {
+    const { ctx, save, advance } = setup();
+    const { task } = save({ title: "t", kind: "review", refs: ["abc-123"], body: "Summary" });
+    const other = save({ title: "other", kind: "review" }).task;
+    advance();
+
+    const { tasks } = commands.setStatus(ctx, "done", [task.id]);
+
+    expect(tasks).toHaveLength(1);
+    const after = commands.show(ctx, task.id).task;
+    expect(after).toEqual({ ...task, status: "done", updated: after.updated });
+    expect(Date.parse(after.updated)).toBe(T1.getTime());
+    expect(commands.show(ctx, other.id).task).toEqual(other);
+  });
+
+  test("a task that already has the status is not written, so running it again does not reorder the list", () => {
+    const { ctx, save, advance } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    advance();
+
+    const { tasks } = commands.setStatus(ctx, "open", [task.id]);
+
+    expect(tasks.map(({ id }) => id)).toEqual([task.id]);
+    expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+
+  test("sets several tasks at once and returns them in the order given", () => {
+    const { ctx, save } = setup();
+    const ids = ["a", "b", "c"].map((title) => save({ title, kind: "review" }).task.id);
+
+    const { tasks } = commands.setStatus(ctx, "dropped", [ids[2], idWords(ids[0])]);
+
+    expect(tasks.map((task) => task.id)).toEqual([ids[2], ids[0]]);
+    expect(ids.map((id) => statusOf(ctx, id))).toEqual(["dropped", "open", "dropped"]);
+  });
+
+  test("accepts every status", () => {
+    const { ctx, save } = setup();
+    const { id } = save({ title: "t", kind: "review" }).task;
+    for (const status of STATUSES) {
+      commands.setStatus(ctx, status, [id]);
+      expect(statusOf(ctx, id)).toBe(status);
+    }
+  });
+
+  test("the same task named twice is updated once", () => {
+    const { ctx, save } = setup();
+    const { id } = save({ title: "t", kind: "review" }).task;
+    expect(commands.setStatus(ctx, "done", [id, idWords(id), id]).tasks.map((task) => task.id)).toEqual([id]);
+  });
+
+  test("an unknown ID is an error and no task is changed, wherever it comes in the arguments", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    const missing = "20261001-nai-mono";
+    expect(errorOf(() => commands.setStatus(ctx, "done", [task.id, missing])).code).toBe("not_found");
+    expect(errorOf(() => commands.setStatus(ctx, "done", [missing, task.id])).code).toBe("not_found");
+    expect(errorOf(() => commands.setStatus(ctx, "done", [task.id, "not an id"])).code).toBe("invalid_input");
+    expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+
+  test("an ambiguous ID is an error and no task is changed", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    const twin = save({ title: "twin", kind: "review" }).task.id;
+    const other = `20260101-${idWords(twin)}`;
+    mkdirSync(taskDir(ctx.home, other));
+    writeFileSync(taskFile(ctx.home, other), readFileSync(taskFile(ctx.home, twin), "utf8").replace(twin, other));
+
+    expect(errorOf(() => commands.setStatus(ctx, "done", [task.id, idWords(twin)])).code).toBe("ambiguous_id");
+    expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+
+  test("a broken task.md is an error and no task is changed, wherever it comes in the arguments", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    const broken = save({ title: "broken", kind: "review" }).task.id;
+    writeFileSync(taskFile(ctx.home, broken), "not a task\n");
+    expect(errorOf(() => commands.setStatus(ctx, "done", [task.id, broken])).code).toBe("invalid_task");
+    expect(errorOf(() => commands.setStatus(ctx, "done", [broken, task.id])).code).toBe("invalid_task");
+    expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+
+  test("an unknown status is an error and no task is changed", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    const error = errorOf(() => commands.setStatus(ctx, "closed", [task.id]));
+    expect(error.code).toBe("invalid_input");
+    expect(error.message).toContain("closed");
+    expect(commands.show(ctx, task.id).task).toEqual(task);
   });
 });
 

@@ -10,7 +10,7 @@ from it. Every write goes through the `shu` command: it is what keeps tasks
 deduplicated, IDs unique, and the log append-only. `shu --help` is the full
 usage, one screen.
 
-If `shu` is missing: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
+If `shu` is missing, or answers `unknown command`, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
 
 ## Cheatsheet
 
@@ -24,7 +24,8 @@ shu show aoi-kitsune --json                       # metadata, body, log, artifac
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
        "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
 echo '{"id": "aoi-kitsune", "status": "waiting", "body": "Current summary."}' | shu save --json
-echo '{"id": "aoi-kitsune", "status": "open"}' | shu save --json   # when you start a todo task
+shu status open aoi-kitsune --json                # when you start a todo task
+shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (dropped if abandoned)
 
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
