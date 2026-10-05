@@ -261,6 +261,7 @@ Sets the status of one or more tasks. Only `status` and `updated` change. A task
 - Every `<id>` is checked before anything is written. If the status is not a known one (`invalid_input`), or any `<id>` is not a task ID (`invalid_input`) or does not resolve to a task that can be read (`not_found`, `ambiguous_id`, `invalid_task`), it is an error and no task is changed
 - Naming the same task more than once (for example by its full ID and by its words) updates it once
 - The tasks are then updated one at a time, each under its own lock (§7). The command is not atomic across tasks: if an update fails after the check (for example `lock_timeout`, or a task that became unreadable or unwritable since the check), the tasks before it stay updated. Running the command again finishes the rest and leaves the tasks already updated as they are
+- Each task goes to whichever command wrote it last. Two commands that set different statuses on the same tasks at the same time can each win some of them
 - The output lists the tasks in the order they were given, including those that already had the status
 
 ## 7. Concurrency safety

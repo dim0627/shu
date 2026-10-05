@@ -4,7 +4,7 @@ import * as commands from "../src/commands";
 import { idWords } from "../src/id";
 import { taskDir, taskFile, taskLock, tasksDir } from "../src/store";
 import { STATUSES } from "../src/task";
-import { cleanupHomes, errorOf, testCtx } from "./helpers";
+import { cleanupHomes, errorOf, tempHome, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
 
@@ -287,6 +287,7 @@ describe("--remove-ref", () => {
 
 describe("status", () => {
   const statusOf = (ctx: commands.Ctx, id: string) => commands.show(ctx, id).task.status;
+  const withoutBody = ({ body, ...task }: commands.TaskDetail) => task;
 
   test("changes only the status and updated, and leaves the other tasks alone", () => {
     const { ctx, save, advance } = setup();
@@ -296,10 +297,10 @@ describe("status", () => {
 
     const { tasks } = commands.setStatus(ctx, "done", [task.id]);
 
-    expect(tasks).toHaveLength(1);
     const after = commands.show(ctx, task.id).task;
     expect(after).toEqual({ ...task, status: "done", updated: after.updated });
     expect(Date.parse(after.updated)).toBe(T1.getTime());
+    expect(tasks).toEqual([withoutBody(after)]);
     expect(commands.show(ctx, other.id).task).toEqual(other);
   });
 
@@ -310,8 +311,40 @@ describe("status", () => {
 
     const { tasks } = commands.setStatus(ctx, "open", [task.id]);
 
-    expect(tasks.map(({ id }) => id)).toEqual([task.id]);
+    expect(tasks).toEqual([withoutBody(task)]);
     expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+
+  test("a task that breaks after the check stops the command; the tasks before it stay updated and a rerun leaves them alone", () => {
+    const home = tempHome();
+    const text = () => readFileSync(taskFile(home, second), "utf8");
+    let breakSecond = false;
+    let now = T0;
+    // updateTask reads the clock under the task lock, after the check: the only point where a test can step in
+    const ctx = testCtx({
+      home,
+      now: () => {
+        if (breakSecond && commands.show(ctx, first).task.status === "done") {
+          writeFileSync(taskFile(home, second), "not a task\n");
+        }
+        return now;
+      },
+    });
+    const first = commands.save(ctx, JSON.stringify({ title: "first", kind: "review" })).task.id;
+    const second = commands.save(ctx, JSON.stringify({ title: "second", kind: "review" })).task.id;
+    const intact = text();
+
+    breakSecond = true;
+    expect(errorOf(() => commands.setStatus(ctx, "done", [first, second])).code).toBe("invalid_task");
+    breakSecond = false;
+    const afterFailure = commands.show(ctx, first).task;
+    expect(afterFailure.status).toBe("done");
+
+    writeFileSync(taskFile(home, second), intact);
+    now = T1;
+    commands.setStatus(ctx, "done", [first, second]);
+    expect(commands.show(ctx, first).task).toEqual(afterFailure);
+    expect(commands.show(ctx, second).task.status).toBe("done");
   });
 
   test("sets several tasks at once and returns them in the order given", () => {

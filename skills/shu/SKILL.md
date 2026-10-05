@@ -16,7 +16,7 @@ If `shu` is missing, or answers `unknown command`, install the latest: `curl -fs
 
 ```sh
 shu list --json                                   # open and waiting tasks, newest first
-shu list --status todo --json                     # tasks saved with "status": "todo" (not started)
+shu list --status todo --json                     # tasks that are not started
 shu kinds --json                                  # kinds in use: reuse one before adding a new one
 shu find --ref example-org/example-repo#482 --json   # is there already a task for this?
 shu show aoi-kitsune --json                       # metadata, body, log, artifact names
