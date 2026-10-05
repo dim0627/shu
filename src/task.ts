@@ -42,11 +42,19 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const isLine = (v: unknown): v is string =>
   typeof v === "string" && v.trim() !== "" && !/[\r\n]/.test(v);
 const isStatus = (v: unknown): v is Status => STATUSES.includes(v as Status);
-const isNote = (v: unknown): v is string => typeof v === "string" && !/[\r\n]/.test(v);
+const NOTE_RULE = "note must be a single-line string with no control characters";
 
-export function parseNote(value: string): string {
-  if (!isNote(value)) throw new ShuError("invalid_input", "note must be a single-line string");
-  return value.trim();
+// A note is printed inside one line of the list, so nothing in it may break the line or drive the terminal
+function normalizeNote(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const note = v.trim();
+  return /[\p{Cc}\u2028\u2029]/u.test(note) ? undefined : note;
+}
+
+export function parseNote(value: unknown): string {
+  const note = normalizeNote(value);
+  if (note === undefined) throw new ShuError("invalid_input", NOTE_RULE);
+  return note;
 }
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((item) => typeof item === "string");
@@ -73,12 +81,12 @@ export function parseTaskFile(text: string, id: string): Task {
 
   const { id: fileId, title, kind, status, created, updated } = front;
   const refs = front.refs ?? [];
-  const note = front.note ?? "";
+  const note = normalizeNote(front.note ?? "");
   if (fileId !== id) throw invalid("id does not match the directory name");
   if (!isLine(title)) throw invalid("title must be a non-empty single-line string");
   if (!isLine(kind)) throw invalid("kind must be a non-empty single-line string");
   if (!isStatus(status)) throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
-  if (!isNote(note)) throw invalid("note must be a single-line string");
+  if (note === undefined) throw invalid(NOTE_RULE);
   if (!isStringArray(refs)) throw invalid("refs must be an array of strings");
   if (new Set(refs).size !== refs.length) throw invalid("refs contains duplicates");
   const denormalized = refs.find((ref) => !isNormalizedRef(ref));
@@ -86,7 +94,7 @@ export function parseTaskFile(text: string, id: string): Task {
   if (!isTimestamp(created)) throw invalid("created must be an ISO 8601 timestamp");
   if (!isTimestamp(updated)) throw invalid("updated must be an ISO 8601 timestamp");
 
-  return { id, title, kind, status, note: note.trim(), refs, created, updated, body: trimBlankEdges(m[2]), front: m[1] };
+  return { id, title, kind, status, note, refs, created, updated, body: trimBlankEdges(m[2]), front: m[1] };
 }
 
 export function serializeTask(task: Task): string {
@@ -98,7 +106,16 @@ export function serializeTask(task: Task): string {
     else place(doc, map, key, task[key]);
   }
   const body = task.body === "" ? "" : `\n${task.body}\n`;
-  return `---\n${doc.toString({ lineWidth: 0 })}---\n${body}`;
+  return `---\n${stringify(doc, task.id)}---\n${body}`;
+}
+
+// Removing a field can leave an alias in a hand-edited file without its anchor
+function stringify(doc: Document, id: string): string {
+  try {
+    return doc.toString({ lineWidth: 0 });
+  } catch (e) {
+    throw new ShuError("invalid_task", `task.md of task ${id} cannot be rewritten: ${(e as Error).message}`, { id });
+  }
 }
 
 // A field that is not there yet goes right after the fields that precede it in FRONT_KEYS
@@ -135,7 +152,7 @@ export function parseSaveInput(text: string): SaveInput {
   if (status !== undefined && !isStatus(status)) {
     throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
   }
-  if (note !== undefined && !isNote(note)) throw invalid("note must be a single-line string");
+  if (note !== undefined && normalizeNote(note) === undefined) throw invalid(NOTE_RULE);
   if (refs !== undefined && !isStringArray(refs)) throw invalid("refs must be an array of strings");
   if (body !== undefined && typeof body !== "string") throw invalid("body must be a string");
 
@@ -144,7 +161,7 @@ export function parseSaveInput(text: string): SaveInput {
     ...(title !== undefined && { title: title.trim() }),
     ...(kind !== undefined && { kind: kind.trim() }),
     ...(status !== undefined && { status }),
-    ...(note !== undefined && { note: note.trim() }),
+    ...(note !== undefined && { note: normalizeNote(note) }),
     ...(refs !== undefined && { refs }),
     ...(body !== undefined && { body }),
   };
