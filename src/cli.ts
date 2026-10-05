@@ -17,7 +17,8 @@ Usage:
       Show a task: metadata, body, log entries, and artifact file names
   shu save [--remove-ref <ref>]...
       Create or update a task from JSON on standard input
-        {"id": "...", "title": "...", "kind": "...", "status": "...", "refs": ["..."], "body": "..."}
+        {"id": "...", "title": "...", "kind": "...", "status": "...", "note": "...",
+         "refs": ["..."], "body": "..."}
       With id, that task is updated: only the given fields change, and refs are
       added to the existing ones.
       Without id, a task that already owns one of refs is matched: its refs are
@@ -25,9 +26,11 @@ Usage:
       applied; save again with the id to apply them.
       Otherwise a new task is created (title and kind required; status defaults
       to open, so pass todo for work that is not started)
-  shu status <status> <id>...
+  shu status <status> <id>... [--note <text>]
       Set the status of one or more tasks (shu status done aoi-kitsune akai-tsuru).
-      Nothing is changed if any <id> does not name a task
+      Nothing is changed if any <id> does not name a task.
+      --note sets the note of each task:
+        shu status waiting aoi-kitsune --note "Waiting for the provider to reply"
   shu find --ref <ref>
       Look up the task that owns a ref
   shu log <id> [message] [--author <name>]
@@ -52,6 +55,8 @@ kind     Free-form. Reuse one that "shu kinds" lists before adding a new one. Su
          review / pr-followup / bug-investigation / alert-investigation / fix-request / ticket
 status   todo (not started) / open (in progress) / waiting (blocked on someone else) /
          done / dropped
+note     One line that says why the task is in its status, such as who it is waiting on.
+         "shu list" shows it. It is cleared when the status changes without a new note
 <ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>, url:<URL>
          (URLs and short forms such as owner/repo#482 or abc-123 are normalized)
 Storage  ~/.shu (override with the SHU_HOME environment variable)`;
@@ -77,7 +82,7 @@ const COMMAND_OPTIONS: Record<string, Options> = {
   },
   show: {},
   save: { "remove-ref": { type: "string", multiple: true } },
-  status: {},
+  status: { note: { type: "string" } },
   find: { ref: { type: "string" } },
   log: { author: { type: "string" } },
   artifact: { name: { type: "string" }, force: { type: "boolean" } },
@@ -173,9 +178,9 @@ async function dispatch(argv: string[]): Promise<Output> {
       return { data, text: `${data.result} ${data.task.id}${skipped}` };
     }
     case "status": {
-      expectPositionals(positionals, 2, Infinity, "status <status> <id>...");
+      expectPositionals(positionals, 2, Infinity, "status <status> <id>... [--note <text>]");
       const [status, ...ids] = positionals;
-      const data = commands.setStatus(ctx, status, ids);
+      const data = commands.setStatus(ctx, status, ids, values.note as string | undefined);
       return { data, text: data.tasks.map((task) => `${task.status} ${task.id}`).join("\n") };
     }
     case "find": {

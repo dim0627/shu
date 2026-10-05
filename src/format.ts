@@ -5,12 +5,14 @@ import type { LogEntry } from "./log";
 const widest = (texts: string[]) => Math.max(...texts.map((text) => Bun.stringWidth(text)));
 const pad = (text: string, width: number) => text + " ".repeat(width - Bun.stringWidth(text));
 
+const titled = (task: TaskSummary) => (task.note === "" ? task.title : `${task.title}  (${task.note})`);
+
 export function formatList(tasks: TaskSummary[]): string {
   if (tasks.length === 0) return "No tasks";
   const width = (key: "id" | "status" | "kind") => widest(tasks.map((task) => task[key]));
   const [id, status, kind] = [width("id"), width("status"), width("kind")];
   return tasks
-    .map((task) => [pad(task.id, id), pad(task.status, status), pad(task.kind, kind), task.title].join("  "))
+    .map((task) => [pad(task.id, id), pad(task.status, status), pad(task.kind, kind), titled(task)].join("  "))
     .join("\n");
 }
 
@@ -24,6 +26,7 @@ export function formatTask(task: TaskDetail): string {
   const lines = [
     `${task.id}  ${task.title}`,
     `kind: ${task.kind}  status: ${task.status}`,
+    ...(task.note === "" ? [] : [`note: ${task.note}`]),
     `created: ${task.created}  updated: ${task.updated}`,
     ...task.refs.map((ref) => `ref: ${ref}`),
   ];

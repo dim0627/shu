@@ -43,7 +43,8 @@ The root is `~/.shu`. The `SHU_HOME` environment variable overrides it (tests mu
 id: 20261001-aoi-kitsune
 title: Investigate double-charged payments
 kind: bug-investigation
-status: open
+status: waiting
+note: Waiting for the payment provider to reply
 refs:
   - slack:https://example.slack.com/archives/C000/p1700000000000000
   - linear:ABC-123
@@ -61,13 +62,14 @@ updated: 2026-10-01T12:34:56+09:00
 | `title` | string | ✓ | A one-line heading. Must not be empty |
 | `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket`. `shu kinds` (§6.8) lists the kinds already in use, so that a writer can reuse one instead of adding a near-duplicate |
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
+| `note` | string | | One line that says why the task is in its status, such as who a `waiting` task is waiting on. `list` shows it. Cleared when the status changes without a new note (§6.3, §6.9) |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
 | `updated` | ISO 8601 | ✓ | Updated by SHU on every `save` or `status` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9) |
 
 Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept.
 
-- `title` and `kind` are single-line strings with no line breaks
+- `title`, `kind`, and `note` are single-line strings with no line breaks. `title` and `kind` must not be empty; an empty `note` is the same as no note, and is not written to `task.md`
 - If a `task.md` that is read does not match this format (for example, after being edited by hand), the task is not silently skipped; it is an error (`invalid_task`). Skipping it would remove its refs from the dedupe check and lead to duplicate tasks
 - A task directory without a `task.md` is considered mid-creation and is treated as if it did not exist
 - A build of SHU reads only the statuses it knows. A task whose status was added by a newer build is `invalid_task` to an older build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before saving a task with a new status
@@ -150,7 +152,7 @@ Output shape with `--json`:
 | `--help`, or no command | `{"help": "<usage text>"}` |
 | `--version` | `{"version": "<version>"}` |
 
-`<task>` is `{"id", "title", "kind", "status", "refs", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none.
+`<task>` is `{"id", "title", "kind", "status", "note", "refs", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none, and `note` as an empty string.
 
 Error codes (`error.code`):
 
@@ -179,6 +181,8 @@ Lists tasks. By default only those whose `status` is `open` or `waiting`: the wo
 
 The order is descending by `updated` (descending by ID when the timestamps are equal). Using `--all` together with `--status` is an error.
 
+The human-readable output is one task per line: the ID, the status, the kind, and the title, followed by the note in parentheses when the task has one.
+
 ### 6.2 `shu show <id>`
 
 Shows the details of a task: the metadata, the body, every log entry, and the list of artifact file names.
@@ -192,7 +196,8 @@ Creates or updates a task (upsert). Takes JSON from standard input.
   "id": "20261001-aoi-kitsune",
   "title": "Investigate double-charged payments",
   "kind": "bug-investigation",
-  "status": "open",
+  "status": "waiting",
+  "note": "Waiting for the payment provider to reply",
   "refs": ["https://github.com/example-org/example-repo/pull/482"],
   "body": "Current summary…"
 }
@@ -210,14 +215,15 @@ Update rules:
 - With `id`, only the given fields are updated (partial update)
 - `refs` are **added to the existing ones** (not replaced). A ref is removed explicitly with `--remove-ref <ref>`
 - `id` and `created` cannot be changed
-- The only input fields are `id` / `title` / `kind` / `status` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
+- The only input fields are `id` / `title` / `kind` / `status` / `note` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
 - `--remove-ref` can be repeated. Naming a ref that the target task does not have does nothing (it is not an error). Naming the same ref in both `refs` and `--remove-ref` is an error
 - `--remove-ref` is not used to choose the target task. If the save does not resolve to an existing task (by `id` or by `refs`), `--remove-ref` is an error and no task is created
-- An empty `body` clears the body
+- An empty `body` clears the body, and an empty `note` clears the note
+- A note says why the task is in its status, so it does not outlive that status: a save that changes `status` without giving `note` clears the note. A save that leaves the status as it is keeps the note
 
 Matched saves (a save without `id` that resolves to an existing task):
 
-- **Only refs change.** The input's `refs` are added and `--remove-ref` is applied. `title`, `kind`, `status`, and `body` are not applied. Input written to create a task therefore never overwrites a task that already exists, and a sync can be run again without moving a task back to an earlier status
+- **Only refs change.** The input's `refs` are added and `--remove-ref` is applied. `title`, `kind`, `status`, `note`, and `body` are not applied. Input written to create a task therefore never overwrites a task that already exists, and a sync can be run again without moving a task back to an earlier status
 - The output names, in `skipped`, the input fields whose value differs from the stored one. To apply them, save again with the `id`
 - A matched save that changes no ref writes nothing: the task stays as it is, including `updated`
 
@@ -254,15 +260,19 @@ Lists the kinds in use, with the number of tasks of each. Tasks of every status 
 
 The order is descending by count. Kinds with the same count are in ascending order, compared by UTF-16 code unit (so uppercase sorts before lowercase), which does not depend on the locale.
 
-### 6.9 `shu status <status> <id>...`
+### 6.9 `shu status <status> <id>... [--note <text>]`
 
-Sets the status of one or more tasks. Only `status` and `updated` change. A task that already has that status is not written: its `updated` stays, so running the command again does not reorder the list.
+Sets the status of one or more tasks. Only `status`, `note`, and `updated` change.
+
+- `--note <text>` sets the note of every task named. An empty text clears it. A text with a line break is an error (`invalid_input`), checked before anything is written
+- Without `--note`, a task whose status changes loses its note, the same as in `save` (§6.3)
+- A task that already has that status, and that note if one is given, is not written: its `updated` stays, so running the command again does not reorder the list
 
 - Every `<id>` is checked before anything is written. If the status is not a known one (`invalid_input`), or any `<id>` is not a task ID (`invalid_input`) or does not resolve to a task that can be read (`not_found`, `ambiguous_id`, `invalid_task`), it is an error and no task is changed
 - Naming the same task more than once (for example by its full ID and by its words) updates it once
 - The tasks are then updated one at a time, each under its own lock (§7). The command is not atomic across tasks: if an update fails after the check (for example `lock_timeout`, or a task that became unreadable or unwritable since the check), the tasks before it stay updated. Running the command again finishes the rest and leaves the tasks already updated as they are
 - Each task goes to whichever command wrote it last. Two commands that set different statuses on the same tasks at the same time can each win some of them
-- The output lists the tasks in the order they were given, including those that already had the status
+- The output lists the tasks in the order they were given, including those that were not written
 
 ## 7. Concurrency safety
 

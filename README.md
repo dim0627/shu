@@ -66,8 +66,8 @@ echo '{"refs": ["example-org/example-repo#482", "ABC-123"]}' | shu save
 echo '{"id": "aoi-kitsune", "body": "Waiting for the payment provider to reply."}' | shu save
 # => updated 20261001-aoi-kitsune
 
-# Change the status of one or more tasks.
-shu status waiting aoi-kitsune
+# Change the status of one or more tasks. The note says why, and "shu list" shows it.
+shu status waiting aoi-kitsune --note "Waiting for the provider to reply"
 # => waiting 20261001-aoi-kitsune
 
 # Record what happened.
@@ -89,7 +89,7 @@ shu find --ref ABC-123
 | `shu list [--status <s>]... [--kind <k>]... [--all]` | List tasks, most recently updated first. Shows `open` and `waiting` by default; `--status todo` shows what is not started. |
 | `shu show <id>` | Show a task: metadata, body, log entries, and artifact file names. |
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
-| `shu status <status> <id>...` | Set the status of one or more tasks. Nothing is changed if any `<id>` does not name a task. |
+| `shu status <status> <id>... [--note <text>]` | Set the status of one or more tasks, and with `--note` their note. Nothing is changed if any `<id>` does not name a task. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
 | `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
@@ -100,7 +100,7 @@ Every command accepts `--json`. Run `shu --help` for the full usage text.
 
 ### `shu save`
 
-Input fields: `id`, `title`, `kind`, `status`, `refs`, `body`. Any other field is rejected.
+Input fields: `id`, `title`, `kind`, `status`, `note`, `refs`, `body`. Any other field is rejected.
 
 The target task is chosen in this order:
 
@@ -109,7 +109,7 @@ The target task is chosen in this order:
 3. If `refs` belong to two or more different tasks, it is an error. SHU never merges tasks on its own.
 4. Otherwise a new task is created. `title` and `kind` are required; `status` defaults to `open`, so pass `todo` for work that is not started.
 
-A matched save never overwrites `title`, `kind`, `status`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference leaves the task untouched.
+A matched save never overwrites `title`, `kind`, `status`, `note`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference leaves the task untouched.
 
 Updates by `id` are partial: only the fields you pass are changed. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
 
@@ -121,6 +121,7 @@ Updates by `id` are partial: only the fields you pass are changed. `refs` are ad
 | `title` | One line, not empty. |
 | `kind` | Free-form, one line. Suggested values: `review`, `pr-followup`, `bug-investigation`, `alert-investigation`, `fix-request`, `ticket`. `shu kinds` lists the ones already in use. |
 | `status` | `todo` (not started), `open` (in progress), `waiting` (blocked on someone else), `done`, or `dropped`. |
+| `note` | One line that says why the task is in its status, such as who a `waiting` task is waiting on. `shu list` shows it after the title. Cleared when the status changes without a new note. |
 | `refs` | Normalized references. Each reference belongs to at most one task. |
 | `created`, `updated` | Set by SHU. |
 

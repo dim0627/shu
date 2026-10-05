@@ -12,6 +12,7 @@ export interface Task {
   title: string;
   kind: string;
   status: Status;
+  note: string;
   refs: string[];
   created: string;
   updated: string;
@@ -25,12 +26,13 @@ export interface SaveInput {
   title?: string;
   kind?: string;
   status?: Status;
+  note?: string;
   refs?: string[];
   body?: string;
 }
 
-const INPUT_KEYS = ["id", "title", "kind", "status", "refs", "body"];
-const FRONT_KEYS = ["id", "title", "kind", "status", "refs", "created", "updated"] as const;
+const INPUT_KEYS = ["id", "title", "kind", "status", "note", "refs", "body"];
+const FRONT_KEYS = ["id", "title", "kind", "status", "note", "refs", "created", "updated"] as const;
 const FRONTMATTER = /^---\r?\n((?:[\s\S]*?\r?\n)?)---[ \t]*(?:\r?\n|$)([\s\S]*)$/;
 // Without intAsBigInt an unknown integer field beyond 2^53 would lose digits when written back
 const YAML_OPTIONS = { intAsBigInt: true };
@@ -40,6 +42,12 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const isLine = (v: unknown): v is string =>
   typeof v === "string" && v.trim() !== "" && !/[\r\n]/.test(v);
 const isStatus = (v: unknown): v is Status => STATUSES.includes(v as Status);
+const isNote = (v: unknown): v is string => typeof v === "string" && !/[\r\n]/.test(v);
+
+export function parseNote(value: string): string {
+  if (!isNote(value)) throw new ShuError("invalid_input", "note must be a single-line string");
+  return value.trim();
+}
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((item) => typeof item === "string");
 const isTimestamp = (v: unknown): v is string => typeof v === "string" && isIso8601(v);
@@ -65,10 +73,12 @@ export function parseTaskFile(text: string, id: string): Task {
 
   const { id: fileId, title, kind, status, created, updated } = front;
   const refs = front.refs ?? [];
+  const note = front.note ?? "";
   if (fileId !== id) throw invalid("id does not match the directory name");
   if (!isLine(title)) throw invalid("title must be a non-empty single-line string");
   if (!isLine(kind)) throw invalid("kind must be a non-empty single-line string");
   if (!isStatus(status)) throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
+  if (!isNote(note)) throw invalid("note must be a single-line string");
   if (!isStringArray(refs)) throw invalid("refs must be an array of strings");
   if (new Set(refs).size !== refs.length) throw invalid("refs contains duplicates");
   const denormalized = refs.find((ref) => !isNormalizedRef(ref));
@@ -76,7 +86,7 @@ export function parseTaskFile(text: string, id: string): Task {
   if (!isTimestamp(created)) throw invalid("created must be an ISO 8601 timestamp");
   if (!isTimestamp(updated)) throw invalid("updated must be an ISO 8601 timestamp");
 
-  return { id, title, kind, status, refs, created, updated, body: trimBlankEdges(m[2]), front: m[1] };
+  return { id, title, kind, status, note: note.trim(), refs, created, updated, body: trimBlankEdges(m[2]), front: m[1] };
 }
 
 export function serializeTask(task: Task): string {
@@ -84,7 +94,7 @@ export function serializeTask(task: Task): string {
   const map = isMap(doc.contents) ? doc.contents : (doc.createNode({}) as YAMLMap);
   doc.contents = map;
   for (const key of FRONT_KEYS) {
-    if (key === "refs" && task.refs.length === 0) map.delete(key);
+    if ((key === "refs" && task.refs.length === 0) || (key === "note" && task.note === "")) map.delete(key);
     else place(doc, map, key, task[key]);
   }
   const body = task.body === "" ? "" : `\n${task.body}\n`;
@@ -118,13 +128,14 @@ export function parseSaveInput(text: string): SaveInput {
     throw invalid(`unknown field ${unknown.join(", ")} (allowed: ${INPUT_KEYS.join(", ")})`);
   }
 
-  const { id, title, kind, status, refs, body } = data;
+  const { id, title, kind, status, note, refs, body } = data;
   if (id !== undefined && !isLine(id)) throw invalid("id must be a string");
   if (title !== undefined && !isLine(title)) throw invalid("title must be a non-empty single-line string");
   if (kind !== undefined && !isLine(kind)) throw invalid("kind must be a non-empty single-line string");
   if (status !== undefined && !isStatus(status)) {
     throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
   }
+  if (note !== undefined && !isNote(note)) throw invalid("note must be a single-line string");
   if (refs !== undefined && !isStringArray(refs)) throw invalid("refs must be an array of strings");
   if (body !== undefined && typeof body !== "string") throw invalid("body must be a string");
 
@@ -133,18 +144,20 @@ export function parseSaveInput(text: string): SaveInput {
     ...(title !== undefined && { title: title.trim() }),
     ...(kind !== undefined && { kind: kind.trim() }),
     ...(status !== undefined && { status }),
+    ...(note !== undefined && { note: note.trim() }),
     ...(refs !== undefined && { refs }),
     ...(body !== undefined && { body }),
   };
 }
 
-export type SkippedField = "title" | "kind" | "status" | "body";
+export type SkippedField = "title" | "kind" | "status" | "note" | "body";
 
 export function differingFields(task: Task, input: SaveInput): SkippedField[] {
   const given = {
     title: input.title,
     kind: input.kind,
     status: input.status,
+    note: input.note,
     body: input.body === undefined ? undefined : trimBlankEdges(input.body),
   };
   return (Object.keys(given) as SkippedField[]).filter(
@@ -159,11 +172,14 @@ export function applyUpdate(
   removeRefs: string[],
   updated: string,
 ): Task {
+  const status = input.status ?? task.status;
   return {
     ...task,
     title: input.title ?? task.title,
     kind: input.kind ?? task.kind,
-    status: input.status ?? task.status,
+    status,
+    // A note says why the task is in its status, so it must not outlive that status
+    note: input.note ?? (status === task.status ? task.note : ""),
     body: input.body === undefined ? task.body : trimBlankEdges(input.body),
     refs: [...new Set([...task.refs, ...addRefs])].filter((ref) => !removeRefs.includes(ref)),
     updated,

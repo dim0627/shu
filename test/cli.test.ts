@@ -11,7 +11,7 @@ setDefaultTimeout(30_000);
 
 afterEach(cleanupHomes);
 
-const TASK_KEYS = ["id", "title", "kind", "status", "refs", "created", "updated"];
+const TASK_KEYS = ["id", "title", "kind", "status", "note", "refs", "created", "updated"];
 const DETAIL_KEYS = [...TASK_KEYS, "body"];
 
 describe("--json output shape (the contract)", () => {
@@ -321,6 +321,22 @@ describe("status", () => {
     }
   });
 
+  test("--note sets the note, and list and show print it", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "A review", kind: "review" });
+    const plain = await create(home, { title: "No note", kind: "review" });
+
+    const { exitCode, json } = await shuJson(home, ["status", "waiting", id, "--note", "Waiting for the author"]);
+    expect(exitCode).toBe(0);
+    expect(json.tasks[0]).toMatchObject({ id, status: "waiting", note: "Waiting for the author" });
+
+    const lines = (await shu(home, ["list"])).stdout.trimEnd().split("\n");
+    expect(lines.find((line) => line.startsWith(id))).toEndWith("A review  (Waiting for the author)");
+    expect(lines.find((line) => line.startsWith(plain))).toEndWith("No note");
+    expect((await shu(home, ["show", id])).stdout).toContain("\nnote: Waiting for the author\n");
+    expect((await shu(home, ["show", plain])).stdout).not.toContain("note:");
+  });
+
   test("the human-readable output is the status and the ID, one task per line", async () => {
     const home = tempHome();
     const a = await create(home, { title: "a", kind: "review" });
@@ -532,7 +548,8 @@ describe("help", () => {
     // The entry for a term: its line and the indented lines that continue it
     const entry = (term: string) => stdout.match(new RegExp(`^${term} .*(?:\\n {2,}.*)*`, "m"))?.[0] ?? "";
     expect(stdout).toMatch(/^  shu kinds$/m);
-    expect(stdout).toMatch(/^  shu status <status> <id>\.\.\.$/m);
+    expect(stdout).toMatch(/^  shu status <status> <id>\.\.\. \[--note <text>\]$/m);
+    expect(entry("note")).toContain("shu list");
     for (const status of STATUSES) expect(entry("status")).toContain(status);
     for (const kind of ["review", "pr-followup", "bug-investigation", "alert-investigation", "fix-request", "ticket"]) {
       expect(entry("kind")).toContain(kind);
