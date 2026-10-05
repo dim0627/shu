@@ -25,6 +25,9 @@ Usage:
       applied; save again with the id to apply them.
       Otherwise a new task is created (title and kind required; status defaults
       to open, so pass todo for work that is not started)
+  shu status <status> <id>...
+      Set the status of one or more tasks (shu status done aoi-kitsune akai-tsuru).
+      Nothing is changed if any <id> does not name a task
   shu find --ref <ref>
       Look up the task that owns a ref
   shu log <id> [message] [--author <name>]
@@ -74,6 +77,7 @@ const COMMAND_OPTIONS: Record<string, Options> = {
   },
   show: {},
   save: { "remove-ref": { type: "string", multiple: true } },
+  status: {},
   find: { ref: { type: "string" } },
   log: { author: { type: "string" } },
   artifact: { name: { type: "string" }, force: { type: "boolean" } },
@@ -167,6 +171,12 @@ async function dispatch(argv: string[]): Promise<Output> {
       const skipped =
         data.skipped.length > 0 ? ` (not applied: ${data.skipped.join(", ")}; save with the id to apply)` : "";
       return { data, text: `${data.result} ${data.task.id}${skipped}` };
+    }
+    case "status": {
+      expectPositionals(positionals, 2, Infinity, "status <status> <id>...");
+      const [status, ...ids] = positionals;
+      const data = commands.setStatus(ctx, status, ids);
+      return { data, text: data.tasks.map((task) => `${task.status} ${task.id}`).join("\n") };
     }
     case "find": {
       expectPositionals(positionals, 0, 0, "find --ref <ref>");

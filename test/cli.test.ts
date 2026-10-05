@@ -68,6 +68,17 @@ describe("--json output shape (the contract)", () => {
     expect(json.artifacts).toEqual(["brief.md"]);
   });
 
+  test("status", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket", body: "Summary" });
+    const { exitCode, stderr, json } = await shuJson(home, ["status", "done", id]);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(Object.keys(json)).toEqual(["tasks"]);
+    expect(Object.keys(json.tasks[0])).toEqual(TASK_KEYS);
+    expect(json.tasks[0]).toMatchObject({ id, title: "t", kind: "ticket", status: "done", refs: [] });
+  });
+
   test("find", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket", refs: ["abc-123"] });
@@ -300,6 +311,26 @@ describe("list", () => {
   });
 });
 
+describe("status", () => {
+  test("needs a status and at least one ID", async () => {
+    const home = tempHome();
+    for (const args of [["status"], ["status", "done"]]) {
+      const { exitCode, json } = await shuJson(home, args);
+      expect(exitCode).toBe(1);
+      expect(json.error.code).toBe("invalid_input");
+    }
+  });
+
+  test("the human-readable output is the status and the ID, one task per line", async () => {
+    const home = tempHome();
+    const a = await create(home, { title: "a", kind: "review" });
+    const b = await create(home, { title: "b", kind: "review" });
+    const { exitCode, stdout } = await shu(home, ["status", "done", a, b]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe(`done ${a}\ndone ${b}\n`);
+  });
+});
+
 describe("kinds", () => {
   test("counts tasks of every status, most used first", async () => {
     const home = tempHome();
@@ -501,6 +532,7 @@ describe("help", () => {
     // The entry for a term: its line and the indented lines that continue it
     const entry = (term: string) => stdout.match(new RegExp(`^${term} .*(?:\\n {2,}.*)*`, "m"))?.[0] ?? "";
     expect(stdout).toMatch(/^  shu kinds$/m);
+    expect(stdout).toMatch(/^  shu status <status> <id>\.\.\.$/m);
     for (const status of STATUSES) expect(entry("status")).toContain(status);
     for (const kind of ["review", "pr-followup", "bug-investigation", "alert-investigation", "fix-request", "ticket"]) {
       expect(entry("kind")).toContain(kind);

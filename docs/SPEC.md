@@ -63,7 +63,7 @@ updated: 2026-10-01T12:34:56+09:00
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
-| `updated` | ISO 8601 | ✓ | Updated by SHU on every save that writes the task (a matched save that changes no ref writes nothing, §6.3) |
+| `updated` | ISO 8601 | ✓ | Updated by SHU on every `save` or `status` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9) |
 
 Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept.
 
@@ -141,6 +141,7 @@ Output shape with `--json`:
 | `list` | `{"tasks": [<task>]}` (without `body`) |
 | `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "artifacts": ["<file name>"]}` |
 | `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
+| `status` | `{"tasks": [<task>]}` (without `body`) |
 | `find` | `{"task": <task>}` |
 | `log` | `{"id", "entry": {"at", "author", "message"}}` |
 | `artifact` | `{"id", "name", "path"}` |
@@ -252,6 +253,15 @@ Prints the absolute path of the task directory. Agents use it to read artifacts 
 Lists the kinds in use, with the number of tasks of each. Tasks of every status are counted.
 
 The order is descending by count. Kinds with the same count are in ascending order, compared by UTF-16 code unit (so uppercase sorts before lowercase), which does not depend on the locale.
+
+### 6.9 `shu status <status> <id>...`
+
+Sets the status of one or more tasks. Only `status` and `updated` change. A task that already has that status is not written: its `updated` stays, so running the command again does not reorder the list.
+
+- Every `<id>` is checked before anything is written. If the status is not a known one (`invalid_input`), or any `<id>` is not a task ID (`invalid_input`) or does not resolve to a task that can be read (`not_found`, `ambiguous_id`, `invalid_task`), it is an error and no task is changed
+- Naming the same task more than once (for example by its full ID and by its words) updates it once
+- The tasks are then updated one at a time, each under its own lock (§7). The command is not atomic across tasks: if an update fails after the check (for example `lock_timeout`, or a task that became unreadable or unwritable since the check), the tasks before it stay updated. Running the command again finishes the rest and leaves the tasks already updated as they are
+- The output lists the tasks in the order they were given, including those that already had the status
 
 ## 7. Concurrency safety
 
