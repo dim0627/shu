@@ -129,7 +129,7 @@ describe("unknown fields", () => {
   test.each([
     ["an integer beyond 2^53", "ticket: 12345678901234567890"],
     ["a version-like number", "version: 1.10"],
-    ["a quoted string", 'note: "quoted"'],
+    ["a quoted string", 'label: "quoted"'],
     ["a comment", "# why this is parked"],
     ["an anchor and an alias", "first: &n hello\nagain: *n"],
   ])("%s is written back unchanged", (_, line) => {

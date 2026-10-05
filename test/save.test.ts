@@ -33,6 +33,7 @@ describe("creating a task", () => {
       title: "Investigate",
       kind: "bug-investigation",
       status: "open",
+      note: "",
       refs: [PR_REF],
       created: task.created,
       updated: task.created,
@@ -411,6 +412,112 @@ describe("status", () => {
     expect(error.code).toBe("invalid_input");
     expect(error.message).toContain("closed");
     expect(commands.show(ctx, task.id).task).toEqual(task);
+  });
+});
+
+describe("note", () => {
+  const stored = (ctx: commands.Ctx, id: string) => commands.show(ctx, id).task;
+
+  test("is saved with the task and comes back from show and list", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review", status: "waiting", note: "  Waiting for the author  " });
+    expect(task.note).toBe("Waiting for the author");
+    expect(stored(ctx, task.id).note).toBe("Waiting for the author");
+    expect(commands.list(ctx).tasks[0].note).toBe("Waiting for the author");
+    expect(readFileSync(taskFile(ctx.home, task.id), "utf8")).toContain("\nstatus: waiting\nnote: Waiting for the author\n");
+  });
+
+  test("a task without a note has an empty note and no note line in task.md", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    expect(task.note).toBe("");
+    expect(readFileSync(taskFile(ctx.home, task.id), "utf8")).not.toContain("note");
+  });
+
+  test("a save by id that leaves the status alone keeps the note; an empty note clears it", () => {
+    const { ctx, save } = setup();
+    const { id } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" }).task;
+    expect(save({ id, title: "renamed" }).task.note).toBe("Waiting for the author");
+    expect(save({ id, status: "waiting" }).task.note).toBe("Waiting for the author");
+    expect(save({ id, note: "" }).task.note).toBe("");
+    expect(readFileSync(taskFile(ctx.home, id), "utf8")).not.toContain("note");
+  });
+
+  test("is cleared when the status changes without a new note, by save and by status", () => {
+    const { ctx, save } = setup();
+    const waiting = () => save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" }).task.id;
+
+    const bySave = waiting();
+    expect(save({ id: bySave, status: "open" }).task.note).toBe("");
+
+    const byStatus = waiting();
+    expect(commands.setStatus(ctx, "open", [byStatus]).tasks[0].note).toBe("");
+    expect(stored(ctx, byStatus).note).toBe("");
+  });
+
+  test("a status change that gives a note sets it", () => {
+    const { ctx, save } = setup();
+    const { id } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" }).task;
+    expect(save({ id, status: "open", note: "Their reply is in" }).task.note).toBe("Their reply is in");
+    const { tasks } = commands.setStatus(ctx, "waiting", [id], "Waiting for a second review");
+    expect(tasks[0]).toMatchObject({ status: "waiting", note: "Waiting for a second review" });
+    expect(stored(ctx, id).note).toBe("Waiting for a second review");
+  });
+
+  test("status with a note writes a task that already has the status only when the note differs", () => {
+    const { ctx, save, advance } = setup();
+    const { task } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" });
+    advance();
+
+    commands.setStatus(ctx, "waiting", [task.id], "Waiting for the author");
+    expect(stored(ctx, task.id)).toEqual(task);
+
+    commands.setStatus(ctx, "waiting", [task.id], "Waiting for a second review");
+    const after = stored(ctx, task.id);
+    expect(after).toEqual({ ...task, note: "Waiting for a second review", updated: after.updated });
+    expect(Date.parse(after.updated)).toBe(T1.getTime());
+  });
+
+  test("status without a note leaves the note of a task that already has the status", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" });
+    commands.setStatus(ctx, "waiting", [task.id]);
+    expect(stored(ctx, task.id)).toEqual(task);
+  });
+
+  test("a matched save does not apply the note and names it in skipped", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "t", kind: "review", refs: [PR], note: "Waiting for the author" });
+    const { result, skipped } = save({ title: "t", kind: "review", refs: [PR], note: "Something else" });
+    expect(result).toBe("matched");
+    expect(skipped).toEqual(["note"]);
+    expect(stored(ctx, task.id)).toEqual(task);
+  });
+
+  test("a note with a line break is an error, in save and in status, and nothing is written", () => {
+    const { ctx, save, taskCount } = setup();
+    const { task } = save({ title: "t", kind: "review" });
+    expect(errorOf(() => save({ title: "u", kind: "review", note: "two\nlines" })).code).toBe("invalid_input");
+    expect(errorOf(() => save({ id: task.id, note: 1 })).code).toBe("invalid_input");
+    expect(errorOf(() => commands.setStatus(ctx, "waiting", [task.id], "two\nlines")).code).toBe("invalid_input");
+    expect(taskCount()).toBe(1);
+    expect(stored(ctx, task.id)).toEqual(task);
+  });
+
+  test("a note that YAML would read as another type round-trips as text", () => {
+    const { ctx, save } = setup();
+    for (const note of ["123", "true", "null", "# not a comment", "key: value", "- item", "'quoted'"]) {
+      const { id } = save({ title: "t", kind: "review", note }).task;
+      expect(stored(ctx, id).note).toBe(note);
+    }
+  });
+
+  test("a hand-written note that is not a single-line string makes the task invalid", () => {
+    const { ctx, save } = setup();
+    const { id } = save({ title: "t", kind: "review" }).task;
+    const file = taskFile(ctx.home, id);
+    writeFileSync(file, readFileSync(file, "utf8").replace("status: open\n", "status: open\nnote: [a, b]\n"));
+    expect(errorOf(() => commands.show(ctx, id)).code).toBe("invalid_task");
   });
 });
 

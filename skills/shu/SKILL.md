@@ -23,8 +23,9 @@ shu show aoi-kitsune --json                       # metadata, body, log, artifac
 
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
        "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
-echo '{"id": "aoi-kitsune", "status": "waiting", "body": "Current summary."}' | shu save --json
+echo '{"id": "aoi-kitsune", "body": "Current summary."}' | shu save --json
 shu status open aoi-kitsune --json                # when you start a todo task
+shu status waiting aoi-kitsune --note "Waiting for the provider to reply" --json
 shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (dropped if abandoned)
 
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
@@ -36,6 +37,9 @@ shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu pat
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
   can never create a duplicate. Pass URLs as they are; SHU normalizes them.
+- **note**: one line on why the task is in its status. Every `waiting` task gets
+  one that names who or what it waits on; `shu list` shows it, and a status
+  change without a new note clears it.
 - **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a

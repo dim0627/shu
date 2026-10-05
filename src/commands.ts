@@ -32,6 +32,7 @@ import {
 import {
   applyUpdate,
   differingFields,
+  parseNote,
   parseSaveInput,
   type SaveInput,
   serializeTask,
@@ -49,14 +50,14 @@ export interface Ctx {
   random: () => number;
 }
 
-export type TaskSummary = Pick<Task, "id" | "title" | "kind" | "status" | "refs" | "created" | "updated">;
+export type TaskSummary = Pick<Task, "id" | "title" | "kind" | "status" | "note" | "refs" | "created" | "updated">;
 export type TaskDetail = TaskSummary & Pick<Task, "body">;
 export type SaveResult = "created" | "updated" | "matched";
 export type KindCount = { kind: string; count: number };
 export type ArtifactSource = { path: string } | { data: Uint8Array };
 
 const DEFAULT_STATUSES: Status[] = ["open", "waiting"];
-const FIELDS = ["title", "kind", "status", "body"] as const;
+const FIELDS = ["title", "kind", "status", "note", "body"] as const;
 
 const unique = <T>(items: T[]) => [...new Set(items)];
 
@@ -67,8 +68,8 @@ function parseStatus(value: string): Status {
   return value as Status;
 }
 
-function summary({ id, title, kind, status, refs, created, updated }: Task): TaskSummary {
-  return { id, title, kind, status, refs, created, updated };
+function summary({ id, title, kind, status, note, refs, created, updated }: Task): TaskSummary {
+  return { id, title, kind, status, note, refs, created, updated };
 }
 
 function detail(task: Task): TaskDetail {
@@ -225,6 +226,7 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
     title: input.title,
     kind: input.kind,
     status: input.status ?? "open",
+    note: input.note ?? "",
     refs,
     created: stamp,
     updated: stamp,
@@ -235,12 +237,18 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
   return task;
 }
 
-export function setStatus(ctx: Ctx, statusInput: string, idInputs: string[]): { tasks: TaskSummary[] } {
+export function setStatus(
+  ctx: Ctx,
+  statusInput: string,
+  idInputs: string[],
+  noteInput?: string,
+): { tasks: TaskSummary[] } {
   const status = parseStatus(statusInput);
+  const input = { status, ...(noteInput !== undefined && { note: parseNote(noteInput) }) };
   const ids = unique(idInputs.map((input) => resolveId(ctx.home, input)));
   // A broken task.md must fail before the first write
   for (const id of ids) readTask(ctx.home, id);
-  return { tasks: ids.map((id) => summary(updateTask(ctx, id, { status }, [], [], { skipUnchanged: true }))) };
+  return { tasks: ids.map((id) => summary(updateTask(ctx, id, input, [], [], { skipUnchanged: true }))) };
 }
 
 export function find(ctx: Ctx, refInput: string): { task: TaskDetail } {
