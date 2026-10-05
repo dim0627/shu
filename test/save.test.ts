@@ -65,7 +65,7 @@ describe("creating a task", () => {
 });
 
 describe("updating by id", () => {
-  test("changes only the given fields; id and created stay the same", () => {
+  test("changes only the given fields (a task without a note); id and created stay the same", () => {
     const { ctx, save, advance } = setup();
     const created = save({ title: "Investigate", kind: "bug-investigation", refs: [PR], body: "Summary" }).task;
     advance();
@@ -290,7 +290,7 @@ describe("status", () => {
   const statusOf = (ctx: commands.Ctx, id: string) => commands.show(ctx, id).task.status;
   const withoutBody = ({ body, ...task }: commands.TaskDetail) => task;
 
-  test("changes only the status and updated, and leaves the other tasks alone", () => {
+  test("changes only the status and updated of a task without a note, and leaves the other tasks alone", () => {
     const { ctx, save, advance } = setup();
     const { task } = save({ title: "t", kind: "review", refs: ["abc-123"], body: "Summary" });
     const other = save({ title: "other", kind: "review" }).task;
@@ -494,15 +494,46 @@ describe("note", () => {
     expect(stored(ctx, task.id)).toEqual(task);
   });
 
-  test("a note with a line break is an error, in save and in status, and nothing is written", () => {
+  test.each([
+    ["a line break", "two\nlines"],
+    ["a Unicode line separator", "two\u2028lines"],
+    ["a tab", "two\tcolumns"],
+    ["an escape sequence", "\u001b[31mred"],
+  ])("a note with %s is an error, in save and in status, and nothing is written", (_, note) => {
     const { ctx, save, taskCount } = setup();
     const { task } = save({ title: "t", kind: "review" });
-    expect(errorOf(() => save({ title: "u", kind: "review", note: "two\nlines" })).code).toBe("invalid_input");
-    expect(errorOf(() => save({ id: task.id, note: 1 })).code).toBe("invalid_input");
-    expect(errorOf(() => commands.setStatus(ctx, "waiting", [task.id], "two\nlines")).code).toBe("invalid_input");
+    expect(errorOf(() => save({ title: "u", kind: "review", note })).code).toBe("invalid_input");
+    expect(errorOf(() => save({ id: task.id, note })).code).toBe("invalid_input");
+    expect(errorOf(() => commands.setStatus(ctx, "waiting", [task.id], note)).code).toBe("invalid_input");
     expect(taskCount()).toBe(1);
     expect(stored(ctx, task.id)).toEqual(task);
   });
+
+  test("a note that is not a string is an error", () => {
+    const { save } = setup();
+    expect(errorOf(() => save({ title: "u", kind: "review", note: 1 })).code).toBe("invalid_input");
+  });
+
+  test("blank edges are trimmed in save and in status, so a trailing line break is fine and a padded rerun writes nothing", () => {
+    const { ctx, save, advance } = setup();
+    const { task } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author\n" });
+    expect(task.note).toBe("Waiting for the author");
+    advance();
+
+    const { tasks } = commands.setStatus(ctx, "waiting", [task.id], "  Waiting for the author  ");
+    expect(tasks[0].note).toBe("Waiting for the author");
+    expect(stored(ctx, task.id)).toEqual(task);
+  });
+
+  test.each([["an empty note", ""], ["a note of blanks", "   "]])(
+    "status with %s clears the note of a task that already has the status",
+    (_, note) => {
+      const { ctx, save } = setup();
+      const { id } = save({ title: "t", kind: "review", status: "waiting", note: "Waiting for the author" }).task;
+      expect(commands.setStatus(ctx, "waiting", [id], note).tasks[0].note).toBe("");
+      expect(readFileSync(taskFile(ctx.home, id), "utf8")).not.toContain("note");
+    },
+  );
 
   test("a note that YAML would read as another type round-trips as text", () => {
     const { ctx, save } = setup();
@@ -512,12 +543,40 @@ describe("note", () => {
     }
   });
 
-  test("a hand-written note that is not a single-line string makes the task invalid", () => {
+  function handWritten(noteLines: string) {
     const { ctx, save } = setup();
     const { id } = save({ title: "t", kind: "review" }).task;
     const file = taskFile(ctx.home, id);
-    writeFileSync(file, readFileSync(file, "utf8").replace("status: open\n", "status: open\nnote: [a, b]\n"));
+    writeFileSync(file, readFileSync(file, "utf8").replace("status: open\n", `status: open\n${noteLines}\n`));
+    return { ctx, id, file };
+  }
+
+  test.each([
+    ["a list", "note: [a, b]"],
+    ["a number", "note: 42"],
+    ["two lines", "note: |\n  line one\n  line two"],
+  ])("a hand-written note that is %s makes the task invalid", (_, noteLines) => {
+    const { ctx, id } = handWritten(noteLines);
     expect(errorOf(() => commands.show(ctx, id)).code).toBe("invalid_task");
+  });
+
+  test.each([
+    ["padded", 'note: "  Waiting for the author  "', "Waiting for the author"],
+    ["folded onto one line", "note: >\n  Waiting for the author", "Waiting for the author"],
+    ["only blanks", 'note: "   "', ""],
+    ["empty", "note:", ""],
+  ])("a hand-written note that is %s is read trimmed", (_, noteLines, note) => {
+    const { ctx, id } = handWritten(noteLines);
+    expect(commands.show(ctx, id).task.note).toBe(note);
+  });
+
+  test("a note whose anchor another field uses cannot be cleared: the task is invalid and stays as it is", () => {
+    const { ctx, id, file } = handWritten("note: &why Waiting for the author\nsummary: *why");
+    const before = readFileSync(file, "utf8");
+    const error = errorOf(() => commands.setStatus(ctx, "waiting", [id]));
+    expect(error.code).toBe("invalid_task");
+    expect(error.details).toEqual({ id });
+    expect(readFileSync(file, "utf8")).toBe(before);
   });
 });
 

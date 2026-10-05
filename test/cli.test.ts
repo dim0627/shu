@@ -337,6 +337,20 @@ describe("status", () => {
     expect((await shu(home, ["show", plain])).stdout).not.toContain("note:");
   });
 
+  test("--note can be given only once, and a note that starts with - is written --note=", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "review" });
+
+    const twice = await shuJson(home, ["status", "waiting", id, "--note", "a", "--note", "b"]);
+    expect(twice.exitCode).toBe(1);
+    expect(twice.json.error.code).toBe("invalid_input");
+    expect((await shuJson(home, ["show", id])).json.task).toMatchObject({ status: "open", note: "" });
+
+    const dash = await shuJson(home, ["status", "waiting", id, "--note=- ask the author"]);
+    expect(dash.exitCode).toBe(0);
+    expect(dash.json.tasks[0].note).toBe("- ask the author");
+  });
+
   test("the human-readable output is the status and the ID, one task per line", async () => {
     const home = tempHome();
     const a = await create(home, { title: "a", kind: "review" });

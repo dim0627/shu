@@ -62,17 +62,19 @@ updated: 2026-10-01T12:34:56+09:00
 | `title` | string | ✓ | A one-line heading. Must not be empty |
 | `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket`. `shu kinds` (§6.8) lists the kinds already in use, so that a writer can reuse one instead of adding a near-duplicate |
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
-| `note` | string | | One line that says why the task is in its status, such as who a `waiting` task is waiting on. `list` shows it. Cleared when the status changes without a new note (§6.3, §6.9) |
+| `note` | string | | One line, with no control characters, that says why the task is in its status, such as who a `waiting` task is waiting on. `list` shows it. Cleared when the status changes without a new note (§6.3, §6.9) |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
 | `updated` | ISO 8601 | ✓ | Updated by SHU on every `save` or `status` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9) |
 
-Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept.
+Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept. The exception is a comment attached to a field that SHU removes (`refs` when the last ref is removed, `note` when the note is cleared): it is removed with the field.
 
-- `title`, `kind`, and `note` are single-line strings with no line breaks. `title` and `kind` must not be empty; an empty `note` is the same as no note, and is not written to `task.md`
+- `title`, `kind`, and `note` are single-line strings with no line breaks. `title` and `kind` must not be empty
+- A `note` has no control characters either (a tab and an escape sequence included), nor the Unicode line and paragraph separators (U+2028, U+2029), because `list` prints it inside one line. Blank edges are trimmed first, so a trailing line break is not an error. An empty `note` is the same as no note, and is not written to `task.md`
 - If a `task.md` that is read does not match this format (for example, after being edited by hand), the task is not silently skipped; it is an error (`invalid_task`). Skipping it would remove its refs from the dedupe check and lead to duplicate tasks
 - A task directory without a `task.md` is considered mid-creation and is treated as if it did not exist
 - A build of SHU reads only the statuses it knows. A task whose status was added by a newer build is `invalid_task` to an older build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before saving a task with a new status
+- `note` is a field of SHU from 0.4.0. A `note` that was written into a `task.md` by hand before then is read as the note: it must follow the rules above (otherwise the task is `invalid_task`), and it is cleared like any other note. A build older than 0.4.0 keeps `note` as an unknown field, so it does not clear the note when it changes the status. Upgrade every `shu` that shares a store before using notes
 
 ### 3.2 log.md
 
@@ -212,7 +214,7 @@ How the target task is chosen:
 
 Update rules:
 
-- With `id`, only the given fields are updated (partial update)
+- With `id`, only the given fields are updated (partial update). The one exception is the note, which a change of status clears (below)
 - `refs` are **added to the existing ones** (not replaced). A ref is removed explicitly with `--remove-ref <ref>`
 - `id` and `created` cannot be changed
 - The only input fields are `id` / `title` / `kind` / `status` / `note` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
@@ -264,7 +266,8 @@ The order is descending by count. Kinds with the same count are in ascending ord
 
 Sets the status of one or more tasks. Only `status`, `note`, and `updated` change.
 
-- `--note <text>` sets the note of every task named. An empty text clears it. A text with a line break is an error (`invalid_input`), checked before anything is written
+- `--note <text>` sets the note of every task named, so it can be given only once. An empty text clears it. A text that breaks the rules for a note (§3.1) is an error (`invalid_input`), checked before anything is written
+- A text that starts with `-` would be read as an option. Write it as `--note=<text>` (`shu status waiting <id> --note="- a bullet"`)
 - Without `--note`, a task whose status changes loses its note, the same as in `save` (§6.3)
 - A task that already has that status, and that note if one is given, is not written: its `updated` stays, so running the command again does not reorder the list
 

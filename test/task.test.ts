@@ -13,7 +13,8 @@ const SPEC_EXAMPLE = `---
 id: 20261001-aoi-kitsune
 title: Investigate double-charged payments
 kind: bug-investigation
-status: open
+status: waiting
+note: Waiting for the payment provider to reply
 refs:
   - slack:https://example.slack.com/archives/C000/p1700000000000000
   - linear:ABC-123
@@ -47,7 +48,8 @@ describe("reading and writing task.md", () => {
       id: ID,
       title: "Investigate double-charged payments",
       kind: "bug-investigation",
-      status: "open",
+      status: "waiting",
+      note: "Waiting for the payment provider to reply",
       refs: [
         "slack:https://example.slack.com/archives/C000/p1700000000000000",
         "linear:ABC-123",

@@ -19,8 +19,9 @@ Usage:
       Create or update a task from JSON on standard input
         {"id": "...", "title": "...", "kind": "...", "status": "...", "note": "...",
          "refs": ["..."], "body": "..."}
-      With id, that task is updated: only the given fields change, and refs are
-      added to the existing ones.
+      With id, that task is updated: only the given fields change (and a new
+      status clears the note unless one is given), and refs are added to the
+      existing ones.
       Without id, a task that already owns one of refs is matched: its refs are
       merged and nothing else changes. "skipped" lists the fields that were not
       applied; save again with the id to apply them.
@@ -31,6 +32,7 @@ Usage:
       Nothing is changed if any <id> does not name a task.
       --note sets the note of each task:
         shu status waiting aoi-kitsune --note "Waiting for the provider to reply"
+      A note that starts with "-" is written --note="- text"
   shu find --ref <ref>
       Look up the task that owns a ref
   shu log <id> [message] [--author <name>]
@@ -55,8 +57,9 @@ kind     Free-form. Reuse one that "shu kinds" lists before adding a new one. Su
          review / pr-followup / bug-investigation / alert-investigation / fix-request / ticket
 status   todo (not started) / open (in progress) / waiting (blocked on someone else) /
          done / dropped
-note     One line that says why the task is in its status, such as who it is waiting on.
-         "shu list" shows it. It is cleared when the status changes without a new note
+note     One line, no control characters, that says why the task is in its status, such
+         as who it is waiting on. "shu list" shows it. It is cleared when the status
+         changes without a new note
 <ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>, url:<URL>
          (URLs and short forms such as owner/repo#482 or abc-123 are normalized)
 Storage  ~/.shu (override with the SHU_HOME environment variable)`;
@@ -82,7 +85,7 @@ const COMMAND_OPTIONS: Record<string, Options> = {
   },
   show: {},
   save: { "remove-ref": { type: "string", multiple: true } },
-  status: { note: { type: "string" } },
+  status: { note: { type: "string", multiple: true } },
   find: { ref: { type: "string" } },
   log: { author: { type: "string" } },
   artifact: { name: { type: "string" }, force: { type: "boolean" } },
@@ -180,7 +183,10 @@ async function dispatch(argv: string[]): Promise<Output> {
     case "status": {
       expectPositionals(positionals, 2, Infinity, "status <status> <id>... [--note <text>]");
       const [status, ...ids] = positionals;
-      const data = commands.setStatus(ctx, status, ids, values.note as string | undefined);
+      const notes = (values.note as string[] | undefined) ?? [];
+      // One note goes to every task named, so a second one cannot mean "one per task"
+      if (notes.length > 1) throw usage("--note can be given only once");
+      const data = commands.setStatus(ctx, status, ids, notes[0]);
       return { data, text: data.tasks.map((task) => `${task.status} ${task.id}`).join("\n") };
     }
     case "find": {

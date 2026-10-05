@@ -10,7 +10,7 @@ from it. Every write goes through the `shu` command: it is what keeps tasks
 deduplicated, IDs unique, and the log append-only. `shu --help` is the full
 usage, one screen.
 
-If `shu` is missing, or answers `unknown command`, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
+If `shu` is missing, or rejects a command, option, or field shown here, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
 
 ## Cheatsheet
 
@@ -37,9 +37,8 @@ shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu pat
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
   can never create a duplicate. Pass URLs as they are; SHU normalizes them.
-- **note**: one line on why the task is in its status. Every `waiting` task gets
-  one that names who or what it waits on; `shu list` shows it, and a status
-  change without a new note clears it.
+- **note**: every `waiting` task gets one, naming who or what it waits on.
+  `shu list` shows it, so the reason is readable without opening the task.
 - **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a
