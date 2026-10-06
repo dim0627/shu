@@ -23,6 +23,6 @@ bun run build   # produces a single executable with bun build --compile
 
 ## Current scope
 
-The CLI itself and its tests, as described in §6 of `docs/SPEC.md`, and the skill in `skills/shu/SKILL.md` (§10). Do not build anything listed as out of scope in §9 (data collection, AI calls, an MCP server, a web view).
+The CLI itself and its tests, as described in §6 of `docs/SPEC.md`, and the skills in `skills/` (§10). Do not build anything listed as out of scope in §9 (AI calls, an MCP server, a web view, and data collection anywhere but the `shu-triage` script).
 
-Keep the skill thin: `shu --help` is the full usage, so a change to a command updates the help text, and the skill only when one of its examples changes.
+Keep the `shu` skill thin: `shu --help` is the full usage, so a change to a command updates the help text, and the skill only when one of its examples changes.

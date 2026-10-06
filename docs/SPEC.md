@@ -4,7 +4,7 @@ SHU (朱) is a local task store CLI through which humans and AI agents (mainly C
 
 ## 1. Positioning
 
-- **SHU does not collect data.** Gathering information from GitHub, Linear, Slack and so on is the AI agent's job (`gh`, MCP).
+- **SHU does not collect data.** Gathering information from GitHub, Linear, Slack and so on is the AI agent's job (`gh`, MCP). The one place this repository does it is the `shu-triage` skill (§10), which runs outside the CLI.
 - **SHU's only responsibility is file input and output.** Listing tasks, fetching a task, saving a task, appending to its log, and storing artifacts.
 - **SHU exists to enforce a few guarantees.** By going through SHU instead of editing Markdown directly, an agent gets the following:
   1. The same piece of work never becomes two tasks (dedupe by reference)
@@ -300,13 +300,41 @@ SHU is built on the assumption that several agents call it at the same time.
 
 ## 9. Out of scope (not done at this stage)
 
-- Data collection (connecting to GitHub, Linear, or Slack)
+For the CLI:
+
+- Data collection (connecting to GitHub, Linear, or Slack). The `shu-triage` skill (§10.1) does it from outside the CLI
 - Calling an AI
 - An MCP server
 - A web view or a local server
 
 ## 10. Skill
 
-- `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. It is installed with `npx skills add dim0627/shu`
+- `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. The skills are installed with `npx skills add dim0627/shu`
 - The skill is kept thin: when to reach for SHU, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
-- The skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
+- The `shu` skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
+
+### 10.1 `shu-triage`
+
+A task is a hand-written copy of facts that live elsewhere (a pull request, a deploy, a reply), and the copy goes stale: a task stays `open` after its pull request is merged, or `waiting` on a deploy that has shipped. An agent that recommends work from `shu list` alone recommends from the stale copy. `skills/shu-triage/` is for the question "what should I work on next": a script that checks the tasks against their sources, and a skill that tells the agent how to act on the result.
+
+- `triage.py` runs outside the CLI, with `python3` (standard library only), `gh`, and `git`. The CLI stays offline and deterministic (§1)
+- **The script writes nothing to SHU.** It reads through `shu list`, `shu show`, and `shu path`. Bringing a task up to date is the agent's job, through the CLI
+- It covers every `open`, `waiting`, and `todo` task, and looks up:
+  - every `github` ref, in one GraphQL request (a ref does not say whether it is a pull request or an issue, §5)
+  - the user's own pull requests: every open one, and those merged in the last 14 days. One that no task refs joins a task when its title carries the key of one of that task's `linear` refs. A `review` task is never joined this way, because its pull requests are someone else's
+  - for a repository listed in the config, whether a merged pull request's merge commit is in a deploy tag. Only tags of the configured pattern are fetched, so the clone's branches and other tags are left alone
+- `linear`, `slack`, and `url` refs are not looked up. They are printed as such, and the skill tells the agent when to look them up
+- Marks, each meaning "check this task", never "change it":
+
+  | Mark | Condition |
+  |---|---|
+  | `merged` | `open` or `todo`, at least one pull request, and all of them merged |
+  | `started` | `todo`, with a pull request that is not merged |
+  | `shipped` | `waiting`, at least one pull request in a repository with a configured deploy tag, and all of those in a tag |
+  | `blank` | `open` or `waiting`, no pull request, and an empty body or an empty log |
+
+- **A lookup that fails is reported, not treated as "nothing found".** The output then starts with `LOOKUPS FAILED`, since a task without a mark is unchecked rather than fine. A GraphQL response is read per ref, so one unreadable ref does not discard the others
+- Standard output is one line per task with its marks and pull request states, short enough for an agent to read whole. The full text (body and the last three log entries of each task) goes to a file
+- Files, under `~/.local/state/shu-triage/` (`XDG_STATE_HOME`; `SHU_TRIAGE_STATE` overrides): `last.md`, `runs.jsonl` (one line per run: counts per status and the IDs under each mark), and `backup/<time>/` with a copy of every `task.md` read, because a body or a note overwritten by `save` is kept nowhere else
+- Config, at `~/.config/shu-triage/config.json` (`XDG_CONFIG_HOME`; `SHU_TRIAGE_CONFIG` overrides): `{"deployTags": {"<owner>/<repo>": {"clone": "<path>", "pattern": "<tag glob>"}}}`. Without it there is no `shipped` mark
+- Tests run the script against a temporary `SHU_HOME` with stand-ins for `gh` and `git` on `PATH`, so they stay offline
