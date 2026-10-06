@@ -38,13 +38,13 @@ bun run build        # produces a single executable at dist/shu
 cp dist/shu /usr/local/bin/   # or anywhere on your PATH
 ```
 
-### Skill for coding agents
+### Skills for coding agents
 
 ```sh
 npx skills add dim0627/shu
 ```
 
-This installs two skills. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks every task in hand against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
+The repository holds two skills, and the installer asks which to add. If you installed `shu` before `shu-triage` existed, add it with `npx skills add dim0627/shu --skill shu-triage`: `npx skills update` only updates what is already installed. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks every task in hand against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
 
 ## Quick start
 
@@ -223,13 +223,13 @@ bun run typecheck
 bun run build
 ```
 
-Tests always point `SHU_HOME` at a temporary directory and never touch the real `~/.shu`. The concurrency tests run multiple processes at once.
+Tests always point `SHU_HOME` at a temporary directory and never touch the real `~/.shu`; the tests of `shu-triage` do the same for its state and config directories. The concurrency tests run multiple processes at once.
 
 The full specification is in [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Out of scope
 
-SHU deliberately does not collect data from GitHub, Linear, or Slack, call an AI, run as an MCP server, or serve a web UI. Gathering and understanding is the agent's job; SHU only stores the result.
+The `shu` CLI deliberately does not collect data from GitHub, Linear, or Slack, and nothing in this repository calls an AI, runs as an MCP server, or serves a web UI. Gathering and understanding is the agent's job; the CLI only stores the result. The one exception is the `shu-triage` skill, which queries GitHub and your deploy tags from outside the CLI.
 
 ## License
 
