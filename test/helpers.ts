@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Ctx } from "../src/commands";
 import { ShuError } from "../src/errors";
 
-const CLI = join(import.meta.dir, "../src/cli.ts");
+export const CLI = join(import.meta.dir, "../src/cli.ts");
 
 const homes: string[] = [];
 
@@ -42,9 +42,14 @@ export interface RunResult {
   stderr: string;
 }
 
-export async function run(home: string, script: string, args: string[], stdin?: string): Promise<RunResult> {
-  const proc = Bun.spawn([process.execPath, script, ...args], {
-    env: { ...process.env, SHU_HOME: home },
+// Runs a command with exactly the given environment and collects what it printed
+export async function spawnCollect(
+  cmd: string[],
+  env: Record<string, string | undefined>,
+  stdin?: string,
+): Promise<RunResult> {
+  const proc = Bun.spawn(cmd, {
+    env,
     stdin: stdin === undefined ? "ignore" : Buffer.from(stdin),
     stdout: "pipe",
     stderr: "pipe",
@@ -55,6 +60,10 @@ export async function run(home: string, script: string, args: string[], stdin?: 
     proc.exited,
   ]);
   return { exitCode, stdout, stderr };
+}
+
+export function run(home: string, script: string, args: string[], stdin?: string): Promise<RunResult> {
+  return spawnCollect([process.execPath, script, ...args], { ...process.env, SHU_HOME: home }, stdin);
 }
 
 export function shu(home: string, args: string[], stdin?: string): Promise<RunResult> {

@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and when you have a finding, decision, or file about that work worth keeping after the session ends.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and when you have a finding, decision, or file about that work worth keeping after the session ends.
 ---
 
 # shu — the task store
@@ -12,6 +12,9 @@ usage, one screen.
 
 For "what should I work on next", use the `shu-triage` skill: the list alone is a
 stale copy of pull requests and deploys, and that skill checks it against them.
+If it is not installed, add it with `npx skills add dim0627/shu --skill shu-triage`
+(`npx skills update` only updates skills that are already installed); until then,
+answer from `shu list` and say that the list is unchecked.
 
 If `shu` is missing, or rejects a command, option, or field shown here, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
 
