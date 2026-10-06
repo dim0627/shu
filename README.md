@@ -44,7 +44,7 @@ cp dist/shu /usr/local/bin/   # or anywhere on your PATH
 npx skills add dim0627/shu
 ```
 
-This installs a small skill that tells an agent such as Claude Code when to reach for SHU and what to store in it. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
+This installs two skills. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks every task in hand against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
 
 ## Quick start
 
