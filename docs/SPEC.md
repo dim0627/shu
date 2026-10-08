@@ -308,8 +308,8 @@ SHU is built on the assumption that several agents call it at the same time.
 ## 10. Skills
 
 - `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. The skills are installed with `npx skills add dim0627/shu`
-- The `shu` skill is kept thin: when to reach for SHU, when to write, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
-- The one thing written in both is when to log: the moments that call for an entry (a lookup or a subagent returns, the user voices a concern, a preference, or a decision, the agent is about to wait for an answer), and that an entry is written before anything is settled. An agent can learn the commands from `shu --help` without loading the skill, and one that does would otherwise never be told when to write. A test keeps the two lists the same
+- The `shu` skill is kept thin: when to reach for SHU, when to log, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
+- The one thing written in both is when to log: the moments that call for an entry (a lookup or a subagent returns, the user voices a concern, a preference, or a decision, the agent is about to wait for an answer), and that an entry is written before anything is settled. An agent can learn the commands from `shu --help` without loading the skill, and one that does would otherwise never be told when to log. A test keeps the moments named in the help and in the skill's "When to log" section the same, in both directions, and checks that both carry the two sentences on what is unsettled. The skill's description and this section repeat the moments and are kept in step by hand
 - The `shu` skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
 
 ### 10.1 `shu-triage`

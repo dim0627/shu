@@ -65,11 +65,13 @@ note     One line, no control characters, that says why the task is in its statu
 Storage  ~/.shu (override with the SHU_HOME environment variable)
 
 When to log, for an agent working on a task: log what you learn when you learn it,
-before anything is settled. The next session starts from the log.
+before anything is settled. The next session starts from the body and the log, so
+fold what is settled into the body (shu save with id and body).
   - A lookup or a subagent returns: log the facts it found
   - The user voices a concern, a preference, or a decision: log it
   - You are about to wait for an answer: log the options you gave and the open question
-  Say in the entry when something is unverified or undecided.`;
+  Say in the entry when something is unverified or undecided.
+  Leave out what the source can tell you again, such as a PR's review state or CI result.`;
 
 interface Output {
   data: unknown;
