@@ -25,4 +25,4 @@ bun run build   # produces a single executable with bun build --compile
 
 The CLI itself and its tests, as described in §6 of `docs/SPEC.md`, and the skills in `skills/` (§10). Do not build anything listed as out of scope in §9 (AI calls, an MCP server, a web view, and data collection anywhere but the `shu-triage` script).
 
-Keep the `shu` skill thin: `shu --help` is the full usage, so a change to a command updates the help text, and the skill only when one of its examples changes. A change to `list`, `show`, `path`, `save`, `log`, or `status` also means checking `skills/shu-triage/`, which calls the first three and shows the rest as examples.
+Keep the `shu` skill thin: `shu --help` is the full usage, so a change to a command updates the help text, and the skill only when one of its examples changes. The when-to-log list is the exception: it is in both the help text and the skill, so change the two together. A change to `list`, `show`, `path`, `save`, `log`, or `status` also means checking `skills/shu-triage/`, which calls the first three and shows the rest as examples.

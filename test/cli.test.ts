@@ -548,6 +548,17 @@ describe("artifact", () => {
 });
 
 describe("help", () => {
+  test("the usage and the shu skill name the same moments to log", async () => {
+    const { stdout } = await shu(tempHome(), ["--help"]);
+    const section = stdout.slice(stdout.indexOf("When to log"));
+    const moments = [...section.matchAll(/^  - (.+?):/gm)].map((m) => m[1]!);
+    expect(moments.length).toBe(3);
+    const skill = readFileSync(join(import.meta.dir, "../skills/shu/SKILL.md"), "utf8");
+    for (const moment of moments) expect(skill).toContain(`- **${moment}**:`);
+    expect(skill).toContain("unverified or undecided");
+    expect(section).toContain("unverified or undecided");
+  });
+
   test("no arguments and --help print the usage and exit 0", async () => {
     const home = tempHome();
     for (const args of [[], ["--help"], ["list", "--help"]]) {

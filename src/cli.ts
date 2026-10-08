@@ -62,7 +62,14 @@ note     One line, no control characters, that says why the task is in its statu
          changes without a new note
 <ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>, url:<URL>
          (URLs and short forms such as owner/repo#482 or abc-123 are normalized)
-Storage  ~/.shu (override with the SHU_HOME environment variable)`;
+Storage  ~/.shu (override with the SHU_HOME environment variable)
+
+When to log, for an agent working on a task: log what you learn when you learn it,
+before anything is settled. The next session starts from the log.
+  - A lookup or a subagent returns: log the facts it found
+  - The user voices a concern, a preference, or a decision: log it
+  - You are about to wait for an answer: log the options you gave and the open question
+  Say in the entry when something is unverified or undecided.`;
 
 interface Output {
   data: unknown;
