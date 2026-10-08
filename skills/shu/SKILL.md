@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and when you have a finding, decision, or file about that work worth keeping after the session ends.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and whenever you learn something about that work: a lookup or a subagent returns, the user voices a concern or decides, or you are about to wait for an answer.
 ---
 
 # shu — the task store
@@ -37,6 +37,20 @@ shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (d
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
 ```
+
+## When to write
+
+Log what you learn when you learn it, before anything is settled. A log entry
+notifies nobody: it is the next session's starting material, so it has a lower
+bar than a ticket comment.
+
+- **A lookup or a subagent returns**: log the facts it found, even when no
+  decision follows from them yet.
+- **The user voices a concern, a preference, or a decision**: log it.
+- **You are about to wait for an answer**: log the options you gave and the
+  open question.
+
+Say in the entry when something is unverified or undecided.
 
 ## What goes where
 
