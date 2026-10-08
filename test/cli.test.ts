@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import * as commands from "../src/commands";
 import { idWords } from "../src/id";
 import { STATUSES } from "../src/task";
@@ -10,6 +11,8 @@ import { cleanupHomes, create, shu, shuJson, tempHome, testCtx } from "./helpers
 setDefaultTimeout(30_000);
 
 afterEach(cleanupHomes);
+
+const SKILLS = join(import.meta.dir, "../skills");
 
 const TASK_KEYS = ["id", "title", "kind", "status", "note", "refs", "created", "updated"];
 const DETAIL_KEYS = [...TASK_KEYS, "body"];
@@ -551,12 +554,30 @@ describe("help", () => {
   test("the usage and the shu skill name the same moments to log", async () => {
     const { stdout } = await shu(tempHome(), ["--help"]);
     const section = stdout.slice(stdout.indexOf("When to log"));
-    const moments = [...section.matchAll(/^  - (.+?):/gm)].map((m) => m[1]!);
+    const moments = [...section.matchAll(/^  - (.+): log\b/gm)].map((m) => m[1]!);
     expect(moments.length).toBe(3);
-    const skill = readFileSync(join(import.meta.dir, "../skills/shu/SKILL.md"), "utf8");
-    for (const moment of moments) expect(skill).toContain(`- **${moment}**:`);
-    expect(skill).toContain("unverified or undecided");
-    expect(section).toContain("unverified or undecided");
+    expect(section.match(/^  - /gm)?.length).toBe(moments.length);
+
+    const skill = readFileSync(join(SKILLS, "shu/SKILL.md"), "utf8");
+    const skillSection = skill.match(/^## When to log\n([\s\S]*?)(?=^## )/m)?.[1] ?? "";
+    expect([...skillSection.matchAll(/^- \*\*(.+)\*\*:/gm)].map((m) => m[1]!)).toEqual(moments);
+
+    const flat = (text: string) => text.replace(/\s+/g, " ").toLowerCase();
+    for (const text of [section, skillSection]) {
+      expect(flat(text)).toContain("log what you learn when you learn it, before anything is settled.");
+      expect(text).toMatch(/^ *Say in the entry when something is unverified or undecided\.$/m);
+    }
+  });
+
+  test("the front matter of every skill parses and has a name and a description", () => {
+    const files = [...new Bun.Glob("*/SKILL.md").scanSync({ cwd: SKILLS })];
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    for (const file of files) {
+      const frontMatter = readFileSync(join(SKILLS, file), "utf8").match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+      const { name, description } = parseYaml(frontMatter) as Record<string, unknown>;
+      expect(name).toBe(file.split("/")[0]!);
+      expect(typeof description).toBe("string");
+    }
   });
 
   test("no arguments and --help print the usage and exit 0", async () => {

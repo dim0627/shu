@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and whenever you learn something about that work: a lookup or a subagent returns, the user voices a concern or decides, or you are about to wait for an answer.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
 ---
 
 # shu — the task store
@@ -38,14 +38,15 @@ shu log aoi-kitsune "The retry path does not set an idempotency key." --author c
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
 ```
 
-## When to write
+## When to log
 
 Log what you learn when you learn it, before anything is settled. A log entry
 notifies nobody: it is the next session's starting material, so it has a lower
 bar than a ticket comment.
 
 - **A lookup or a subagent returns**: log the facts it found, even when no
-  decision follows from them yet.
+  decision follows from them yet. State that changes at the source, such as a
+  CI result, stays there (see "What goes where").
 - **The user voices a concern, a preference, or a decision**: log it.
 - **You are about to wait for an answer**: log the options you gave and the
   open question.
@@ -60,6 +61,8 @@ Say in the entry when something is unverified or undecided.
 - **note**: every `waiting` task gets one, naming who or what it waits on.
   `shu list` shows it, so the reason is readable without opening the task.
 - **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
+  Fold what is settled into it: `shu-triage` shows the body whole and only the
+  last three log entries.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a
   new entry.
