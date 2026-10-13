@@ -102,11 +102,20 @@ export function kinds(ctx: Ctx): { kinds: KindCount[] } {
   return { kinds };
 }
 
-export function show(ctx: Ctx, idInput: string): { task: TaskDetail; log: LogEntry[]; artifacts: string[] } {
+// logLimit keeps the last entries; log_total still counts them all, so a shortened log does not
+// read as the whole of it
+export function show(
+  ctx: Ctx,
+  idInput: string,
+  logLimit?: number,
+): { task: TaskDetail; log: LogEntry[]; log_total: number; artifacts: string[] } {
   const id = resolveId(ctx.home, idInput);
+  const log = parseLog(readOptional(logFile(ctx.home, id)));
   return {
     task: detail(readTask(ctx.home, id)),
-    log: parseLog(readOptional(logFile(ctx.home, id))),
+    // slice(-0) would return every entry
+    log: logLimit === undefined ? log : log.slice(Math.max(log.length - logLimit, 0)),
+    log_total: log.length,
     artifacts: listArtifacts(ctx.home, id),
   };
 }

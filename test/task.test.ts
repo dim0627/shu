@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as commands from "../src/commands";
 import { taskDir, taskFile } from "../src/store";
 import { parseSaveInput, parseTaskFile, serializeTask } from "../src/task";
-import { cleanupHomes, codeOf, testCtx } from "./helpers";
+import { cleanupHomes, codeOf, errorOf, testCtx } from "./helpers";
 
 afterEach(cleanupHomes);
 
@@ -205,13 +205,15 @@ describe("a url ref stored before its URL had a kind of its own", () => {
     expect(parseTaskFile(text, ID).refs).toEqual([`notion:${PAGE}`]);
   });
 
-  test("is found by any URL of the page, and a save by another URL matches it instead of creating a task", () => {
+  test("is found by other URLs of the page, and a save by another URL matches it instead of creating a task", () => {
     const ctx = testCtx();
     mkdirSync(taskDir(ctx.home, ID), { recursive: true });
     writeFileSync(taskFile(ctx.home, ID), stored([`url:https://app.notion.com/p/${PAGE}`]));
     const long = `https://www.notion.so/example-ws/Some-page-title-${PAGE}?pvs=4`;
 
-    expect(commands.find(ctx, long).task.id).toBe(ID);
+    for (const url of [long, `https://app.notion.com/p/${PAGE}`, `https://www.notion.so/${PAGE}#${PAGE}`]) {
+      expect(commands.find(ctx, url).task.id).toBe(ID);
+    }
     const saved = commands.save(ctx, JSON.stringify({ title: "u", kind: "ticket", refs: [long] }));
     expect(saved.result).toBe("matched");
     expect(saved.task.id).toBe(ID);
@@ -231,8 +233,34 @@ describe("a url ref stored before its URL had a kind of its own", () => {
   test.each([
     ["a url ref of a pull request whose number is 0", "url:https://github.com/example-org/example-repo/pull/0"],
     ["a url ref that is not in its normal form", "url:HTTPS://EXAMPLE.COM/docs"],
+    ["a url ref of a Notion page that is not in the form it was stored in", `url:HTTPS://APP.NOTION.COM/p/${PAGE}`],
+    ["a url ref that holds a Linear key", "url:abc-123"],
+    ["a url ref that holds a GitHub short form", "url:example-org/example-repo#482"],
+    ["a url ref that holds a bare page ID", `url:${PAGE}`],
   ])("does not excuse %s", (_, ref) => {
     expect(codeOf(() => parseTaskFile(stored([ref]), ID))).toBe("invalid_task");
+  });
+
+  test("on two tasks, of one page, is ref_conflict until one of them drops the ref", () => {
+    const ctx = testCtx();
+    const other = "20261002-akai-tsuru";
+    const write = (id: string, ref: string) => {
+      mkdirSync(taskDir(ctx.home, id), { recursive: true });
+      writeFileSync(taskFile(ctx.home, id), stored([ref]).replace(`id: ${ID}`, `id: ${id}`));
+    };
+    write(ID, `url:https://app.notion.com/p/${PAGE}`);
+    write(other, `url:https://www.notion.so/example-ws/Some-page-title-${PAGE}`);
+
+    expect(commands.list(ctx).tasks.length).toBe(2);
+    const conflict = errorOf(() => commands.find(ctx, `notion:${PAGE}`));
+    expect(conflict.code).toBe("ref_conflict");
+    expect([...(conflict.details?.candidates as string[])].sort()).toEqual([ID, other]);
+    const save = () => commands.save(ctx, JSON.stringify({ title: "u", kind: "ticket", refs: [`notion:${PAGE}`] }));
+    expect(codeOf(save)).toBe("ref_conflict");
+
+    commands.save(ctx, JSON.stringify({ id: other }), [`notion:${PAGE}`]);
+    expect(commands.find(ctx, `notion:${PAGE}`).task.id).toBe(ID);
+    expect(save().result).toBe("matched");
   });
 });
 

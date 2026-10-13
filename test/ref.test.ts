@@ -38,8 +38,11 @@ describe("ref normalization", () => {
     ["https://www.notion.so/example-ws/Some-page-title-0123456789abcdef0123456789abcdef/", "notion:0123456789abcdef0123456789abcdef"],
     ["notion:0123456789abcdef0123456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
     ["notion:https://app.notion.com/p/0123456789abcdef0123456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
-    ["0123456789abcdef0123456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
-    ["01234567-89ab-cdef-0123-456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
+    ["notion:01234567-89AB-CDEF-0123-456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
+    ["https://notion.so/0123456789abcdef0123456789abcdef", "notion:0123456789abcdef0123456789abcdef"],
+    ["https://www.notion.so/login?p=0123456789abcdef0123456789abcdef", "url:https://www.notion.so/login?p=0123456789abcdef0123456789abcdef"],
+    ["https://api.notion.com/v1/blocks/0123456789abcdef0123456789abcdef", "url:https://api.notion.com/v1/blocks/0123456789abcdef0123456789abcdef"],
+    ["https://calendar.notion.so/meet/x/0123456789abcdef0123456789abcdef", "url:https://calendar.notion.so/meet/x/0123456789abcdef0123456789abcdef"],
     ["https://www.notion.so/example-ws", "url:https://www.notion.so/example-ws"],
     ["https://www.notion.so/example-ws/face0123456789abcdef0123456789abcdef", "url:https://www.notion.so/example-ws/face0123456789abcdef0123456789abcdef"],
     ["https://example.com/docs/0123456789abcdef0123456789abcdef", "url:https://example.com/docs/0123456789abcdef0123456789abcdef"],
@@ -94,7 +97,10 @@ describe("ref normalization", () => {
     "notion:abc-123",
     "notion:https://www.notion.so/example-ws",
     "url:https://app.notion.com/p/0123456789abcdef0123456789abcdef",
-    "0123456789abcdef0123456789abcde",
+    "notion:0123456789abcdef0123456789abcde",
+    "0123456789abcdef0123456789abcdef",
+    "01234567-89ab-cdef-0123-456789abcdef",
+    "url:0123456789abcdef0123456789abcdef",
   ])("input that cannot be normalized is an error: %p", (input) => {
     expect(codeOf(() => normalizeRef(input))).toBe("invalid_ref");
   });
