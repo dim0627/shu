@@ -44,7 +44,7 @@ Issues, and pull requests closed without merging, do not count toward a mark.
   `shu log <id> "status: open → waiting. <reason>. Previous note: <note>" --author shu-triage`
 - A task that a loop or another skill keeps (a registered review request, for
   example) is that owner's to write. Report its mark and leave the task as it is.
-- `not looked up:` lists refs the script cannot read (Linear, Slack, other URLs).
+- `not looked up:` lists refs the script cannot read (Linear, Slack, Notion, other URLs).
   Look them up with your own tools before recommending that task, and for a
   `waiting` task that waits on a reply. A task that waits on the user's own
   decision goes in your answer as theirs to decide.

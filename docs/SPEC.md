@@ -124,11 +124,14 @@ The format is `<kind>:<value>`. Refs are normalized when saved.
 - Input that cannot be normalized is an error (`invalid_ref`)
 - `github`: `owner` and `repo` are lowercased (GitHub does not distinguish case). URLs of the form `/pull/<number>` and `/issues/<number>` are accepted, and any path after that (such as `/files`) is ignored
 - `slack`: the query and the fragment are dropped. However, if the query has `thread_ts` (the permalink of a reply inside a thread), the ref is **normalized to the permalink of the thread's parent message**, so that a link to any message in a thread dedupes to the same task
-- `notion`: a URL on `notion.so`, `notion.com`, a subdomain of either, or a subdomain of `notion.site`, whose last path segment is a page ID or ends with `-<page ID>`. Only the ID is kept: the host, the workspace, the title, the query, and the fragment are dropped, so that every URL of a page dedupes to the same task. The ID is also accepted on its own, and with the hyphens of a UUID. However, if the query has `p` with a page ID (a page opened as a peek over a database, whose path names the database), the ref is **normalized to the page in `p`**
+- `notion`: a URL on `notion.so` or `notion.com` (bare, or under `www.` or `app.`), or on a subdomain of `notion.site`, whose last path segment is a page ID or ends with `-<page ID>`. Other subdomains (the API, the calendar) carry IDs that are not pages, so their URLs stay `url`. Only the ID is kept: the host, the workspace, the title, the query, and the fragment are dropped, so that every URL of a page dedupes to the same task. The ID is also accepted with the explicit kind (`notion:<ID>`), with or without the hyphens of a UUID, but not on its own: any UUID or 32-digit hash has that shape. However, if the query of such a URL has `p` with a page ID (a page opened as a peek over a database, whose path names the database), the ref is **normalized to the page in `p`**. `p` on a URL whose path has no ID changes nothing
 - Input with an explicit kind (`linear:abc-123`, `github:https://github.com/...`, and so on) is also accepted. If the kind detected from the value differs from the given kind, it is an error (for example `linear:owner/repo#1`, or `url:` with a GitHub PR URL)
 - `<number>` is a positive integer. Input in the form of a pull request, an issue, or a Linear issue whose number is 0 or too large to be an integer is an error, also when it is a URL (it does not become `url`)
 - GitHub, Linear, Slack, and Notion URLs that do not have the forms above (such as a repository's top page) become `url`
-- **A stored `url` ref whose URL has a kind of its own is read as that kind.** A URL that was saved as `url` before its kind existed (a Notion page saved before `notion` did) would otherwise make its task invalid and never match another URL of the same thing. If that leaves a task with the same ref twice, it is read once. The file is rewritten in the normal form the next time the task is written. Every other stored ref must already be in its normal form (`invalid_task`)
+- **A stored `url` ref whose URL has a kind of its own is read as that kind.** A URL that was saved as `url` before its kind existed (a Notion page saved before `notion` did) would otherwise make its task invalid and never match another URL of the same thing. Only a `url` ref in the form it was stored in is read this way: a short form after `url:`, or a URL in another spelling, is `invalid_task`, as is every other stored ref that is not in its normal form
+  - If that leaves a task with the same ref twice, it is read once
+  - If it leaves two tasks with the same ref (each was saved from a different URL of one page), `find` and a `save` without `id` are `ref_conflict` until one of them drops the ref: `shu save --remove-ref <ref>` with the `id` of that task
+  - The file is rewritten in the normal form the next time the task is written, by any command, also one that does not name a ref. A build older than the kind does not know it, so the rewritten task is `invalid_task` to that build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before writing with the newer build
 - **A ref belongs to at most one task across all tasks** (the basis of the dedupe in §6.3)
 
 ## 6. Commands
@@ -139,7 +142,7 @@ Common to all commands:
 - On failure the exit code is non-zero. With `--json`, the error is also written to standard output as `{"error": {"code": "...", "message": "..."}}`
 - The shape of the JSON stays compatible (fields are not removed and their types do not change). Fields and enum values (such as a `status`) may be added, so a consumer must tolerate the ones it does not know
 - Human-oriented errors go to standard error (nothing is written to standard output)
-- `--help` together with a command (`shu save --help`) prints the usage of that command alone, the same text as its entry in the full usage, and runs nothing
+- `--help` together with a command (`shu save --help`) prints the entry of that command from the full usage, under the same `Usage:` heading and followed by a line that points at `shu --help`, and runs nothing. For `log`, the when-to-log text of the full usage comes with it (§10). The other arguments must still parse: an unknown option, or an option without its value, is reported instead
 - Options may come before or after the command. `--` ends the options: everything after it is a positional argument, even if it looks like an option
 
 Output shape with `--json`:
@@ -147,7 +150,7 @@ Output shape with `--json`:
 | Command | Output |
 |---|---|
 | `list` | `{"tasks": [<task>]}` (without `body`) |
-| `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "artifacts": ["<file name>"]}` |
+| `show` | `{"task": <task>, "log": [{"at", "author", "message"}], "log_total": <number>, "artifacts": ["<file name>"]}` |
 | `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
 | `status` | `{"tasks": [<task>]}` (without `body`) |
 | `find` | `{"task": <task>}` |
@@ -195,9 +198,9 @@ Shows the details of a task: the metadata, the body, every log entry, and the li
 
 | Option | Description |
 |---|---|
-| `--log <n>` | Show only the last `<n>` log entries. `<n>` is a non-negative integer; 0 shows none |
+| `--log <n>` | Show only the last `<n>` log entries. `<n>` is a non-negative integer; 0 shows none, and a number larger than the log shows all of it |
 
-A long log is most of what `show` prints, and a reader who wants the body and the latest entries would otherwise cut the output blindly. With `--log`, `log` in the JSON holds only those entries. The human-readable output says how many entries there are when it leaves some out (`# Log (last 2 of 12)`), so that a shortened log does not read as the whole of it.
+A long log is most of what `show` prints, and a reader who wants the body and the latest entries would otherwise cut the output blindly. With `--log`, `log` in the JSON holds only those entries. So that a shortened log does not read as the whole of it, `log_total` in the JSON is the number of entries the task has, with or without `--log`, and the human-readable output says how many there are when it leaves some out (`# Log (last 2 of 12)`).
 
 ### 6.3 `shu save`
 
@@ -245,7 +248,7 @@ The output includes a field that tells whether the task was created, updated, or
 
 Looks up a task from a ref. The input goes through the normalization in §5 before matching. If nothing is found, the exit code is non-zero. With `--json` the exit code is also non-zero and the output is `{"error": {"code": "not_found", ...}}` (so that the error shape matches the other commands and callers can branch on the exit code alone).
 
-If the ref is found on more than one task (which can only happen when files were edited by hand), it is an error (`ref_conflict`), the same as for `save`.
+If the ref is found on more than one task (which can only happen when files were edited by hand, or when two tasks hold `url` refs that are now read as one ref, §5), it is an error (`ref_conflict`), the same as for `save`.
 
 ### 6.5 `shu log <id> [message]`
 
@@ -332,7 +335,7 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
   - every `github` ref, in one GraphQL request (a ref does not say whether it is a pull request or an issue, §5)
   - the user's own pull requests: the open ones, and those merged in the last 14 days. Each of the two searches reads at most 200
   - for a repository listed in the config, whether a merged pull request's merge commit is in a deploy tag. Only tags of the configured pattern are fetched, so the clone's branches and other tags are left alone. A pull request merged into a branch other than the default one is not looked for
-- `linear`, `slack`, and `url` refs are not looked up. They are printed as such, and the skill tells the agent when to look them up
+- `linear`, `slack`, `notion`, and `url` refs are not looked up. They are printed as such, and the skill tells the agent when to look them up
 - One of the user's own pull requests that no task refs:
   - joins a task in hand when its title carries the key of one of that task's `linear` refs, read the way §5 normalizes a key (any case, leading zeros dropped). It then counts toward that task's marks and is printed as matched by title. A `review` task is never joined this way, because its pull requests are someone else's. A merged pull request joined only by its title drops out when it leaves the 14-day search, so the skill tells the agent to add the ref
   - otherwise, when open: listed if it was created in the last 30 days, counted if older

@@ -8,13 +8,14 @@ import { ShuError } from "./errors";
 import { formatKinds, formatList, formatShow, formatTask } from "./format";
 
 // One entry per command: shu <command> --help prints that entry alone
-const USAGE: Record<string, string> = {
+const USAGE = {
   list: `  shu list [--status <s>]... [--kind <k>]... [--all]
       List tasks, most recently updated first (open / waiting by default;
       --status todo for what is not started)`,
   show: `  shu show <id> [--log <n>]
       Show a task: metadata, body, log entries, and artifact file names.
-      --log <n> shows only the last <n> log entries (0 for none)`,
+      --log <n> shows only the last <n> log entries (0 for none); "log_total" in
+      the JSON is the number of entries there are`,
   save: `  shu save [--remove-ref <ref>]...
       Create or update a task from JSON on standard input
         {"id": "...", "title": "...", "kind": "...", "status": "...", "note": "...",
@@ -47,6 +48,15 @@ const USAGE: Record<string, string> = {
       List the kinds in use, with the number of tasks of each`,
 };
 
+const WHEN_TO_LOG = `When to log, for an agent working on a task: log what you learn when you learn it,
+before anything is settled. The next session starts from the body and the log, so
+fold what is settled into the body (shu save with id and body).
+  - A lookup or a subagent returns: log the facts it found
+  - The user voices a concern, a preference, or a decision: log it
+  - You are about to wait for an answer: log the options you gave and the open question
+  Say in the entry when something is unverified or undecided.
+  Leave out what the source can tell you again, such as a PR's review state or CI result.`;
+
 const HELP = `shu — a local task store for humans and AI agents
 
 Usage:
@@ -72,14 +82,7 @@ note     One line, no control characters, that says why the task is in its statu
          URL of one pull request, issue, thread, or Notion page names the same ref)
 Storage  ~/.shu (override with the SHU_HOME environment variable)
 
-When to log, for an agent working on a task: log what you learn when you learn it,
-before anything is settled. The next session starts from the body and the log, so
-fold what is settled into the body (shu save with id and body).
-  - A lookup or a subagent returns: log the facts it found
-  - The user voices a concern, a preference, or a decision: log it
-  - You are about to wait for an answer: log the options you gave and the open question
-  Say in the entry when something is unverified or undecided.
-  Leave out what the source can tell you again, such as a PR's review state or CI result.`;
+${WHEN_TO_LOG}`;
 
 interface Output {
   data: unknown;
@@ -94,7 +97,9 @@ const GLOBAL_OPTIONS: Options = {
   version: { type: "boolean" },
 };
 
-const COMMAND_OPTIONS: Record<string, Options> = {
+type Command = keyof typeof USAGE;
+
+const COMMAND_OPTIONS: Record<Command, Options> = {
   list: {
     status: { type: "string", multiple: true },
     kind: { type: "string", multiple: true },
@@ -150,27 +155,28 @@ function expectPositionals(positionals: string[], min: number, max: number, syno
   if (positionals.length < min || positionals.length > max) throw usage(`usage: shu ${synopsis}`);
 }
 
-const commandHelp = (command: string) =>
-  `Usage:\n${USAGE[command]}\n\n"shu --help" explains <id>, kind, status, note, and <ref>, and lists every command`;
+// An agent that reads only "shu log --help" must still be told when to log
+const commandHelp = (command: Command) =>
+  [
+    `Usage:\n${USAGE[command]}`,
+    ...(command === "log" ? [WHEN_TO_LOG] : []),
+    '"shu --help" explains <id>, kind, status, note, and <ref>, and lists every command',
+  ].join("\n\n");
 
-// slice(-0) would return every entry
-const lastEntries = <T>(entries: T[], count: number) => entries.slice(Math.max(entries.length - count, 0));
+const isCommand = (name: string): name is Command => Object.hasOwn(USAGE, name);
 
 function parseCount(value: string, option: string): number {
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
-    throw usage(`${option} must be a non-negative integer: ${value}`);
-  }
+  if (!/^\d+$/.test(value)) throw usage(`${option} must be a non-negative integer: ${value}`);
   return Number(value);
 }
 
 async function dispatch(argv: string[]): Promise<Output> {
   const commandIndex = findCommandIndex(argv);
-  const command = commandIndex === -1 ? undefined : argv[commandIndex];
+  const name = commandIndex === -1 ? undefined : argv[commandIndex];
   const rest = argv.filter((_, index) => index !== commandIndex);
 
-  if (command !== undefined && !Object.hasOwn(COMMAND_OPTIONS, command)) {
-    throw usage(`unknown command: ${command}`);
-  }
+  if (name !== undefined && !isCommand(name)) throw usage(`unknown command: ${name}`);
+  const command = name;
   const { values, positionals } = parse(rest, command === undefined ? {} : COMMAND_OPTIONS[command]);
   if (values.version) return { data: { version: pkg.version }, text: pkg.version };
   if (values.help || command === undefined) {
@@ -204,9 +210,8 @@ async function dispatch(argv: string[]): Promise<Output> {
     case "show": {
       expectPositionals(positionals, 1, 1, "show <id> [--log <n>]");
       const limit = typeof values.log === "string" ? parseCount(values.log, "--log") : undefined;
-      const full = commands.show(ctx, positionals[0]);
-      const data = limit === undefined ? full : { ...full, log: lastEntries(full.log, limit) };
-      return { data, text: formatShow(data.task, data.log, data.artifacts, full.log.length) };
+      const data = commands.show(ctx, positionals[0], limit);
+      return { data, text: formatShow(data.task, data.log, data.log_total, data.artifacts) };
     }
     case "save": {
       expectPositionals(positionals, 0, 0, "save [--remove-ref <ref>]...  (JSON on standard input)");

@@ -34,10 +34,9 @@ export function formatTask(task: TaskDetail): string {
   return lines.join("\n");
 }
 
-export function formatShow(task: TaskDetail, log: LogEntry[], artifacts: string[], logTotal = log.length): string {
+export function formatShow(task: TaskDetail, log: LogEntry[], logTotal: number, artifacts: string[]): string {
   const sections = [formatTask(task)];
   if (logTotal > 0) {
-    // A shortened log must not read as the whole of it
     const heading = log.length < logTotal ? `# Log (last ${log.length} of ${logTotal})` : "# Log";
     sections.push([heading, ...log.map((e) => `## ${e.at} ${e.author}\n${e.message}`)].join("\n\n"));
   }

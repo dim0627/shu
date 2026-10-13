@@ -7,14 +7,18 @@ const LINEAR_KEY = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
 const LINEAR_PATH = /^\/[^/]+\/issue\/([A-Za-z][A-Za-z0-9]*)-(\d+)(?:\/.*)?$/;
 const SLACK_PATH = /^\/archives\/([A-Za-z0-9]+)\/p(\d+)\/?$/;
 const SLACK_THREAD_TS = /^(\d+)\.(\d{6})$/;
-const NOTION_HOST = /^(?:(?:[a-z0-9-]+\.)?notion\.(?:so|com)|[a-z0-9-]+\.notion\.site)$/;
-const NOTION_ID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
-const NOTION_SLUG_ID = /(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+// Other subdomains (the API, the calendar) carry IDs that are not pages
+const NOTION_HOST = /^(?:(?:(?:www|app)\.)?notion\.(?:so|com)|[a-z0-9-]+\.notion\.site)$/;
+const NOTION_ID_FORMS = "[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const NOTION_ID = new RegExp(`^(?:${NOTION_ID_FORMS})$`, "i");
+const NOTION_SLUG_ID = new RegExp(`(?:^|-)(${NOTION_ID_FORMS})$`, "i");
 
 export function normalizeRef(input: string): string {
   const raw = input.trim();
   const prefixed = PREFIXED.exec(raw);
-  const normalized = detect(prefixed ? prefixed[2].trim() : raw);
+  const value = prefixed ? prefixed[2].trim() : raw;
+  // A bare ID has no shape of its own (any UUID or 32-digit hash would pass), so it needs the kind
+  const normalized = prefixed?.[1] === "notion" && NOTION_ID.test(value) ? notion(value) : detect(value);
   if (normalized === null) {
     throw new ShuError("invalid_ref", `cannot normalize ref: ${input}`);
   }
@@ -27,8 +31,14 @@ export function normalizeRef(input: string): string {
 // A url ref saved before its URL gained a kind of its own reads as that kind, so that a new kind
 // does not turn the tasks already stored into invalid ones
 export function readStoredRef(ref: string): string | null {
-  const normalized = ref.startsWith("url:") ? detect(ref.slice("url:".length)) : null;
-  if (normalized !== null && !normalized.startsWith("url:")) return normalized;
+  if (ref.startsWith("url:")) {
+    const value = ref.slice("url:".length);
+    const normalized = /^https?:\/\//.test(value) ? fromUrl(value) : null;
+    if (normalized === null) return null;
+    if (normalized.startsWith("url:")) return normalized === ref ? ref : null;
+    // Only a URL in the form it was stored in is excused, not any spelling of it
+    return new URL(value).href === value ? normalized : null;
+  }
   try {
     return normalizeRef(ref) === ref ? ref : null;
   } catch {
@@ -42,7 +52,6 @@ function detect(raw: string): string | null {
   if (gh) return github(gh[1], gh[2], gh[3]);
   const lin = LINEAR_KEY.exec(raw);
   if (lin) return linear(lin[1], lin[2]);
-  if (NOTION_ID.test(raw)) return notion(raw);
   return null;
 }
 
@@ -67,10 +76,10 @@ function fromUrl(raw: string): string | null {
     if (m) return slack(host, m[1], m[2], url.searchParams.get("thread_ts"));
   }
   if (NOTION_HOST.test(host)) {
+    const inPath = NOTION_SLUG_ID.exec(lastSegment(url.pathname))?.[1];
     // A page opened as a peek over a database is named by p; the path names the database
     const peeked = url.searchParams.get("p");
-    const id = peeked !== null && NOTION_ID.test(peeked) ? peeked : NOTION_SLUG_ID.exec(lastSegment(url.pathname))?.[1];
-    if (id !== undefined) return notion(id);
+    if (inPath !== undefined) return notion(peeked !== null && NOTION_ID.test(peeked) ? peeked : inPath);
   }
   return `url:${url.href}`;
 }
