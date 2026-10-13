@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, or Slack thread, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, Slack thread, or document such as a Notion page, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
 ---
 
 # shu — the task store
@@ -26,6 +26,7 @@ shu list --status todo --json                     # tasks that are not started
 shu kinds --json                                  # kinds in use: reuse one before adding a new one
 shu find --ref example-org/example-repo#482 --json   # is there already a task for this?
 shu show aoi-kitsune --json                       # metadata, body, log, artifact names
+shu show aoi-kitsune --log 3 --json               # the same, with only the last 3 log entries
 
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
        "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
@@ -55,7 +56,7 @@ Say in the entry when something is unverified or undecided.
 
 ## What goes where
 
-- **refs**: every place the work lives (PR, issue, ticket, Slack thread), on every
+- **refs**: every place the work lives (PR, issue, ticket, Slack thread, Notion page), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
   can never create a duplicate. Pass URLs as they are; SHU normalizes them.
 - **note**: every `waiting` task gets one, naming who or what it waits on.

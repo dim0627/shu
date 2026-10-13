@@ -7,15 +7,15 @@ import * as commands from "./commands";
 import { ShuError } from "./errors";
 import { formatKinds, formatList, formatShow, formatTask } from "./format";
 
-const HELP = `shu — a local task store for humans and AI agents
-
-Usage:
-  shu list [--status <s>]... [--kind <k>]... [--all]
+// One entry per command: shu <command> --help prints that entry alone
+const USAGE: Record<string, string> = {
+  list: `  shu list [--status <s>]... [--kind <k>]... [--all]
       List tasks, most recently updated first (open / waiting by default;
-      --status todo for what is not started)
-  shu show <id>
-      Show a task: metadata, body, log entries, and artifact file names
-  shu save [--remove-ref <ref>]...
+      --status todo for what is not started)`,
+  show: `  shu show <id> [--log <n>]
+      Show a task: metadata, body, log entries, and artifact file names.
+      --log <n> shows only the last <n> log entries (0 for none)`,
+  save: `  shu save [--remove-ref <ref>]...
       Create or update a task from JSON on standard input
         {"id": "...", "title": "...", "kind": "...", "status": "...", "note": "...",
          "refs": ["..."], "body": "..."}
@@ -26,30 +26,36 @@ Usage:
       merged and nothing else changes. "skipped" lists the fields that were not
       applied; save again with the id to apply them.
       Otherwise a new task is created (title and kind required; status defaults
-      to open, so pass todo for work that is not started)
-  shu status <status> <id>... [--note <text>]
+      to open, so pass todo for work that is not started)`,
+  status: `  shu status <status> <id>... [--note <text>]
       Set the status of one or more tasks (shu status done aoi-kitsune akai-tsuru).
       Nothing is changed if any <id> does not name a task.
       --note sets the note of each task:
         shu status waiting aoi-kitsune --note "Waiting for the provider to reply"
-      A note that starts with "-" is written --note="- text"
-  shu find --ref <ref>
-      Look up the task that owns a ref
-  shu log <id> [message] [--author <name>]
+      A note that starts with "-" is written --note="- text"`,
+  find: `  shu find --ref <ref>
+      Look up the task that owns a ref`,
+  log: `  shu log <id> [message] [--author <name>]
       Append one log entry (reads the message from standard input if omitted).
       A message that starts with "-" must come after "--" or from standard input:
-        shu log <id> -- "- a bullet"
-  shu artifact <id> <file> [--name <name>] [--force]
-      Copy a file into the task (<file> of - reads standard input; needs --name)
-  shu path <id>
-      Print the absolute path of the task directory
-  shu kinds
-      List the kinds in use, with the number of tasks of each
+        shu log <id> -- "- a bullet"`,
+  artifact: `  shu artifact <id> <file> [--name <name>] [--force]
+      Copy a file into the task (<file> of - reads standard input; needs --name)`,
+  path: `  shu path <id>
+      Print the absolute path of the task directory`,
+  kinds: `  shu kinds
+      List the kinds in use, with the number of tasks of each`,
+};
+
+const HELP = `shu — a local task store for humans and AI agents
+
+Usage:
+${Object.values(USAGE).join("\n")}
 
 Common options:
   --json       Print only JSON to standard output (errors as {"error": {"code", "message"}})
                --help prints {"help"} and --version prints {"version"}
-  --help, -h   Show this help
+  --help, -h   Show this help; after a command (shu save --help), the usage of that command
   --version    Show the version
 
 <id>     The full ID (20261001-aoi-kitsune) or just its words (aoi-kitsune)
@@ -60,8 +66,10 @@ status   todo (not started) / open (in progress) / waiting (blocked on someone e
 note     One line, no control characters, that says why the task is in its status, such
          as who it is waiting on. "shu list" shows it. It is cleared when the status
          changes without a new note
-<ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>, url:<URL>
-         (URLs and short forms such as owner/repo#482 or abc-123 are normalized)
+<ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>,
+         notion:<page ID>, url:<URL>
+         (URLs and short forms such as owner/repo#482 or abc-123 are normalized, so every
+         URL of one pull request, issue, thread, or Notion page names the same ref)
 Storage  ~/.shu (override with the SHU_HOME environment variable)
 
 When to log, for an agent working on a task: log what you learn when you learn it,
@@ -92,7 +100,7 @@ const COMMAND_OPTIONS: Record<string, Options> = {
     kind: { type: "string", multiple: true },
     all: { type: "boolean" },
   },
-  show: {},
+  show: { log: { type: "string" } },
   save: { "remove-ref": { type: "string", multiple: true } },
   status: { note: { type: "string", multiple: true } },
   find: { ref: { type: "string" } },
@@ -142,6 +150,19 @@ function expectPositionals(positionals: string[], min: number, max: number, syno
   if (positionals.length < min || positionals.length > max) throw usage(`usage: shu ${synopsis}`);
 }
 
+const commandHelp = (command: string) =>
+  `Usage:\n${USAGE[command]}\n\n"shu --help" explains <id>, kind, status, note, and <ref>, and lists every command`;
+
+// slice(-0) would return every entry
+const lastEntries = <T>(entries: T[], count: number) => entries.slice(Math.max(entries.length - count, 0));
+
+function parseCount(value: string, option: string): number {
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    throw usage(`${option} must be a non-negative integer: ${value}`);
+  }
+  return Number(value);
+}
+
 async function dispatch(argv: string[]): Promise<Output> {
   const commandIndex = findCommandIndex(argv);
   const command = commandIndex === -1 ? undefined : argv[commandIndex];
@@ -152,7 +173,10 @@ async function dispatch(argv: string[]): Promise<Output> {
   }
   const { values, positionals } = parse(rest, command === undefined ? {} : COMMAND_OPTIONS[command]);
   if (values.version) return { data: { version: pkg.version }, text: pkg.version };
-  if (values.help || command === undefined) return { data: { help: HELP }, text: HELP };
+  if (values.help || command === undefined) {
+    const help = command === undefined ? HELP : commandHelp(command);
+    return { data: { help }, text: help };
+  }
 
   const ctx: commands.Ctx = {
     home: resolve(process.env.SHU_HOME || join(homedir(), ".shu")),
@@ -178,9 +202,11 @@ async function dispatch(argv: string[]): Promise<Output> {
       return { data, text };
     }
     case "show": {
-      expectPositionals(positionals, 1, 1, "show <id>");
-      const data = commands.show(ctx, positionals[0]);
-      return { data, text: formatShow(data.task, data.log, data.artifacts) };
+      expectPositionals(positionals, 1, 1, "show <id> [--log <n>]");
+      const limit = typeof values.log === "string" ? parseCount(values.log, "--log") : undefined;
+      const full = commands.show(ctx, positionals[0]);
+      const data = limit === undefined ? full : { ...full, log: lastEntries(full.log, limit) };
+      return { data, text: formatShow(data.task, data.log, data.artifacts, full.log.length) };
     }
     case "save": {
       expectPositionals(positionals, 0, 0, "save [--remove-ref <ref>]...  (JSON on standard input)");
