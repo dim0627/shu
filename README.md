@@ -8,7 +8,7 @@ It is built for working alongside a coding agent such as Claude Code. The agent 
 
 Agents can edit files on their own. SHU sits in between to enforce a few guarantees that are easy to break by hand, especially when several agents run at once:
 
-- **No duplicate tasks.** A task is looked up by its references (a PR, a ticket, a Slack thread) before a new one is created.
+- **No duplicate tasks.** A task is looked up by its references (a PR, a ticket, a Slack thread, a Notion page) before a new one is created.
 - **No ID collisions.** IDs are allocated by atomically creating the task directory.
 - **No malformed tasks.** Input and stored files are validated against a schema.
 - **History is append-only.** There is no command that rewrites or deletes a log entry.
@@ -87,7 +87,7 @@ shu find --ref ABC-123
 | Command | What it does |
 |---|---|
 | `shu list [--status <s>]... [--kind <k>]... [--all]` | List tasks, most recently updated first. Shows `open` and `waiting` by default; `--status todo` shows what is not started. |
-| `shu show <id>` | Show a task: metadata, body, log entries, and artifact file names. |
+| `shu show <id> [--log <n>]` | Show a task: metadata, body, log entries, and artifact file names. `--log <n>` shows only the last `<n>` log entries. |
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
 | `shu status <status> <id>... [--note <text>]` | Set the status of one or more tasks, and with `--note` their note. Nothing is changed if any `<id>` does not name a task. A note that starts with `-` is written `--note="- text"`. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
@@ -96,7 +96,7 @@ shu find --ref ABC-123
 | `shu path <id>` | Print the absolute path of the task directory. |
 | `shu kinds` | List the kinds in use, with the number of tasks of each. |
 
-Every command accepts `--json`. Run `shu --help` for the full usage text.
+Every command accepts `--json`. Run `shu --help` for the full usage text, or `shu <command> --help` for one command.
 
 ### `shu save`
 
@@ -142,12 +142,14 @@ References are normalized when saved, so different spellings of the same thing r
 | `github` | `github:<owner>/<repo>#<number>` | PR and issue URLs, `owner/repo#482` |
 | `linear` | `linear:<KEY>-<number>` | `abc-123`, Linear issue URLs |
 | `slack` | `slack:<permalink>` | Slack message permalinks |
+| `notion` | `notion:<page ID>` | Notion page URLs |
 | `url` | `url:<URL>` | Any other `http(s)` URL |
 
 A few details worth knowing:
 
 - GitHub owner and repository names are lowercased.
 - A Slack permalink to a reply inside a thread is normalized to the thread's parent message, so any link into the same thread finds the same task.
+- Only the page ID of a Notion URL is kept, so the short link, the link with the workspace and the title, and a link with a query all find the same task.
 - Input that cannot be normalized is rejected.
 
 ## Where things are stored

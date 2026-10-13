@@ -188,6 +188,54 @@ describe("save input validation", () => {
   });
 });
 
+describe("a url ref stored before its URL had a kind of its own", () => {
+  const PAGE = "0123456789abcdef0123456789abcdef";
+  const stored = (refs: string[]) => frontmatter({ refs: `[${refs.map((ref) => JSON.stringify(ref)).join(", ")}]` });
+
+  test("reads as that kind", () => {
+    const text = stored([`url:https://app.notion.com/p/${PAGE}`, "url:https://example.com/docs/page"]);
+    expect(parseTaskFile(text, ID).refs).toEqual([`notion:${PAGE}`, "url:https://example.com/docs/page"]);
+  });
+
+  test("two URLs of one page read as one ref", () => {
+    const text = stored([
+      `url:https://app.notion.com/p/${PAGE}`,
+      `url:https://www.notion.so/example-ws/Some-page-title-${PAGE}?pvs=4`,
+    ]);
+    expect(parseTaskFile(text, ID).refs).toEqual([`notion:${PAGE}`]);
+  });
+
+  test("is found by any URL of the page, and a save by another URL matches it instead of creating a task", () => {
+    const ctx = testCtx();
+    mkdirSync(taskDir(ctx.home, ID), { recursive: true });
+    writeFileSync(taskFile(ctx.home, ID), stored([`url:https://app.notion.com/p/${PAGE}`]));
+    const long = `https://www.notion.so/example-ws/Some-page-title-${PAGE}?pvs=4`;
+
+    expect(commands.find(ctx, long).task.id).toBe(ID);
+    const saved = commands.save(ctx, JSON.stringify({ title: "u", kind: "ticket", refs: [long] }));
+    expect(saved.result).toBe("matched");
+    expect(saved.task.id).toBe(ID);
+    expect(commands.list(ctx).tasks.length).toBe(1);
+  });
+
+  test("is written back in its normal form by the next save that changes the task", () => {
+    const ctx = testCtx();
+    mkdirSync(taskDir(ctx.home, ID), { recursive: true });
+    writeFileSync(taskFile(ctx.home, ID), stored([`url:https://app.notion.com/p/${PAGE}`]));
+    commands.save(ctx, JSON.stringify({ id: ID, status: "done" }));
+    const text = readFileSync(taskFile(ctx.home, ID), "utf8");
+    expect(text).toContain(`notion:${PAGE}`);
+    expect(text).not.toContain("url:");
+  });
+
+  test.each([
+    ["a url ref of a pull request whose number is 0", "url:https://github.com/example-org/example-repo/pull/0"],
+    ["a url ref that is not in its normal form", "url:HTTPS://EXAMPLE.COM/docs"],
+  ])("does not excuse %s", (_, ref) => {
+    expect(codeOf(() => parseTaskFile(stored([ref]), ID))).toBe("invalid_task");
+  });
+});
+
 describe("a broken task.md", () => {
   test("is an error for list and for dedupe, never silently skipped", () => {
     const ctx = testCtx();

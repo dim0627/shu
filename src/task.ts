@@ -1,6 +1,6 @@
 import { type Document, isMap, isScalar, parseDocument, type YAMLMap } from "yaml";
 import { ShuError } from "./errors";
-import { normalizeRef } from "./ref";
+import { readStoredRef } from "./ref";
 import { trimBlankEdges } from "./text";
 import { isIso8601 } from "./time";
 
@@ -60,14 +60,6 @@ const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((item) => typeof item === "string");
 const isTimestamp = (v: unknown): v is string => typeof v === "string" && isIso8601(v);
 
-function isNormalizedRef(ref: string): boolean {
-  try {
-    return normalizeRef(ref) === ref;
-  } catch {
-    return false;
-  }
-}
-
 export function parseTaskFile(text: string, id: string): Task {
   const invalid = (reason: string) =>
     new ShuError("invalid_task", `task.md of task ${id} is invalid: ${reason}`, { id });
@@ -80,17 +72,22 @@ export function parseTaskFile(text: string, id: string): Task {
   if (!isRecord(front)) throw invalid("front matter must be a mapping");
 
   const { id: fileId, title, kind, status, created, updated } = front;
-  const refs = front.refs ?? [];
+  const stored = front.refs ?? [];
   const note = normalizeNote(front.note ?? "");
   if (fileId !== id) throw invalid("id does not match the directory name");
   if (!isLine(title)) throw invalid("title must be a non-empty single-line string");
   if (!isLine(kind)) throw invalid("kind must be a non-empty single-line string");
   if (!isStatus(status)) throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
   if (note === undefined) throw invalid(NOTE_RULE);
-  if (!isStringArray(refs)) throw invalid("refs must be an array of strings");
-  if (new Set(refs).size !== refs.length) throw invalid("refs contains duplicates");
-  const denormalized = refs.find((ref) => !isNormalizedRef(ref));
-  if (denormalized !== undefined) throw invalid(`refs contains a non-normalized ref (${denormalized})`);
+  if (!isStringArray(stored)) throw invalid("refs must be an array of strings");
+  if (new Set(stored).size !== stored.length) throw invalid("refs contains duplicates");
+  const refs: string[] = [];
+  for (const ref of stored) {
+    const read = readStoredRef(ref);
+    if (read === null) throw invalid(`refs contains a non-normalized ref (${ref})`);
+    // Two URLs of one page, saved as two url refs, read as the same ref
+    if (!refs.includes(read)) refs.push(read);
+  }
   if (!isTimestamp(created)) throw invalid("created must be an ISO 8601 timestamp");
   if (!isTimestamp(updated)) throw invalid("updated must be an ISO 8601 timestamp");
 

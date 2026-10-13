@@ -407,6 +407,43 @@ describe("show", () => {
     expect(json.log).toEqual([]);
     expect(json.artifacts).toEqual([]);
   });
+
+  test("--log <n> shows only the last n log entries and says how many there are", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket", body: "the body" });
+    for (const message of ["first", "second", "third"]) await shu(home, ["log", id, message]);
+    const messages = async (args: string[]) =>
+      (await shuJson(home, ["show", id, ...args])).json.log.map((entry: { message: string }) => entry.message);
+
+    expect(await messages([])).toEqual(["first", "second", "third"]);
+    expect(await messages(["--log", "2"])).toEqual(["second", "third"]);
+    expect(await messages(["--log", "0"])).toEqual([]);
+    expect(await messages(["--log", "9"])).toEqual(["first", "second", "third"]);
+
+    const some = (await shu(home, ["show", id, "--log", "2"])).stdout;
+    expect(some).toContain("the body");
+    expect(some).toContain("# Log (last 2 of 3)");
+    expect(some).not.toContain("first");
+    const none = (await shu(home, ["show", id, "--log", "0"])).stdout;
+    expect(none).toContain("# Log (last 0 of 3)");
+    expect(none).not.toContain("third");
+    expect((await shu(home, ["show", id, "--log", "3"])).stdout).toMatch(/^# Log$/m);
+    expect((await shu(home, ["show", id])).stdout).toMatch(/^# Log$/m);
+  });
+
+  test("--log 0 on a task without a log prints no log heading", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    expect((await shu(home, ["show", id, "--log", "0"])).stdout).not.toContain("# Log");
+  });
+
+  test.each(["-1", "1.5", "two", ""])("--log %p is invalid_input", async (value) => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const { exitCode, json } = await shuJson(home, ["show", id, `--log=${value}`]);
+    expect(exitCode).toBe(1);
+    expect(json.error.code).toBe("invalid_input");
+  });
 });
 
 describe("save", () => {
@@ -582,11 +619,41 @@ describe("help", () => {
 
   test("no arguments and --help print the usage and exit 0", async () => {
     const home = tempHome();
-    for (const args of [[], ["--help"], ["list", "--help"]]) {
+    for (const args of [[], ["--help"], ["-h"]]) {
       const { exitCode, stdout } = await shu(home, args);
       expect(exitCode).toBe(0);
       expect(stdout).toContain("shu save");
     }
+  });
+
+  test("--help after a command prints the usage of that command alone", async () => {
+    const home = tempHome();
+    const full = (await shu(home, ["--help"])).stdout;
+    const commandNames = [...full.matchAll(/^  shu (\S+)/gm)].map((m) => m[1]!);
+    expect(commandNames.length).toBe(9);
+    for (const command of commandNames) {
+      const { exitCode, stdout } = await shu(home, [command, "--help"]);
+      expect(exitCode).toBe(0);
+      const entries = [...stdout.matchAll(/^  shu (\S+)/gm)].map((m) => m[1]!);
+      expect(entries).toEqual([command]);
+      // The entry is the one the full usage prints, so the two cannot drift apart
+      const entry = stdout.slice(stdout.indexOf("  shu "), stdout.indexOf("\n\n", stdout.indexOf("  shu ")));
+      expect(full).toContain(`${entry}\n`);
+      expect(stdout).toContain("shu --help");
+    }
+    const save = await shuJson(home, ["save", "--help"]);
+    expect(Object.keys(save.json)).toEqual(["help"]);
+    expect(save.json.help).toContain('"refs": ["..."]');
+    expect(save.json.help).not.toContain("shu log");
+    expect((await shu(home, ["--help", "save"])).stdout).toBe((await shu(home, ["save", "--help"])).stdout);
+  });
+
+  test("--help after a command reads nothing and needs no arguments", async () => {
+    const home = tempHome();
+    const { exitCode, stdout } = await shu(home, ["log", "--help"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("shu log <id>");
+    expect(existsSync(join(home, "tasks"))).toBe(false);
   });
 
   test("the usage names the kinds command, every status, and the suggested kinds", async () => {

@@ -118,14 +118,17 @@ The format is `<kind>:<value>`. Refs are normalized when saved.
 | `github` | `github:<owner>/<repo>#<number>` | `https://github.com/owner/repo/pull/482`, `owner/repo#482` |
 | `linear` | `linear:<KEY>-<number>` (KEY in uppercase) | `abc-123`, `https://linear.app/<ws>/issue/ABC-123/...` |
 | `slack` | `slack:<permalink URL>` | The permalink of a Slack message |
+| `notion` | `notion:<page ID>` (32 hexadecimal digits, lowercase, no hyphens) | `https://www.notion.so/<ws>/<title>-<ID>`, `https://app.notion.com/p/<ID>` |
 | `url` | `url:<URL>` | Any other `http(s)` URL |
 
 - Input that cannot be normalized is an error (`invalid_ref`)
 - `github`: `owner` and `repo` are lowercased (GitHub does not distinguish case). URLs of the form `/pull/<number>` and `/issues/<number>` are accepted, and any path after that (such as `/files`) is ignored
 - `slack`: the query and the fragment are dropped. However, if the query has `thread_ts` (the permalink of a reply inside a thread), the ref is **normalized to the permalink of the thread's parent message**, so that a link to any message in a thread dedupes to the same task
+- `notion`: a URL on `notion.so`, `notion.com`, a subdomain of either, or a subdomain of `notion.site`, whose last path segment is a page ID or ends with `-<page ID>`. Only the ID is kept: the host, the workspace, the title, the query, and the fragment are dropped, so that every URL of a page dedupes to the same task. The ID is also accepted on its own, and with the hyphens of a UUID. However, if the query has `p` with a page ID (a page opened as a peek over a database, whose path names the database), the ref is **normalized to the page in `p`**
 - Input with an explicit kind (`linear:abc-123`, `github:https://github.com/...`, and so on) is also accepted. If the kind detected from the value differs from the given kind, it is an error (for example `linear:owner/repo#1`, or `url:` with a GitHub PR URL)
 - `<number>` is a positive integer. Input in the form of a pull request, an issue, or a Linear issue whose number is 0 or too large to be an integer is an error, also when it is a URL (it does not become `url`)
-- GitHub, Linear, and Slack URLs that do not have the forms above (such as a repository's top page) become `url`
+- GitHub, Linear, Slack, and Notion URLs that do not have the forms above (such as a repository's top page) become `url`
+- **A stored `url` ref whose URL has a kind of its own is read as that kind.** A URL that was saved as `url` before its kind existed (a Notion page saved before `notion` did) would otherwise make its task invalid and never match another URL of the same thing. If that leaves a task with the same ref twice, it is read once. The file is rewritten in the normal form the next time the task is written. Every other stored ref must already be in its normal form (`invalid_task`)
 - **A ref belongs to at most one task across all tasks** (the basis of the dedupe in §6.3)
 
 ## 6. Commands
@@ -136,6 +139,7 @@ Common to all commands:
 - On failure the exit code is non-zero. With `--json`, the error is also written to standard output as `{"error": {"code": "...", "message": "..."}}`
 - The shape of the JSON stays compatible (fields are not removed and their types do not change). Fields and enum values (such as a `status`) may be added, so a consumer must tolerate the ones it does not know
 - Human-oriented errors go to standard error (nothing is written to standard output)
+- `--help` together with a command (`shu save --help`) prints the usage of that command alone, the same text as its entry in the full usage, and runs nothing
 - Options may come before or after the command. `--` ends the options: everything after it is a positional argument, even if it looks like an option
 
 Output shape with `--json`:
@@ -151,7 +155,7 @@ Output shape with `--json`:
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
 | `kinds` | `{"kinds": [{"kind", "count"}]}` |
-| `--help`, or no command | `{"help": "<usage text>"}` |
+| `--help`, or no command | `{"help": "<usage text>"}` (with a command, the usage of that command) |
 | `--version` | `{"version": "<version>"}` |
 
 `<task>` is `{"id", "title", "kind", "status", "note", "refs", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none, and `note` as an empty string.
@@ -185,9 +189,15 @@ The order is descending by `updated` (descending by ID when the timestamps are e
 
 The human-readable output is one task per line: the ID, the status, the kind, and the title, followed by the note in parentheses when the task has one.
 
-### 6.2 `shu show <id>`
+### 6.2 `shu show <id> [--log <n>]`
 
 Shows the details of a task: the metadata, the body, every log entry, and the list of artifact file names.
+
+| Option | Description |
+|---|---|
+| `--log <n>` | Show only the last `<n>` log entries. `<n>` is a non-negative integer; 0 shows none |
+
+A long log is most of what `show` prints, and a reader who wants the body and the latest entries would otherwise cut the output blindly. With `--log`, `log` in the JSON holds only those entries. The human-readable output says how many entries there are when it leaves some out (`# Log (last 2 of 12)`), so that a shortened log does not read as the whole of it.
 
 ### 6.3 `shu save`
 
