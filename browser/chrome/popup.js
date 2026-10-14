@@ -53,7 +53,7 @@ function render(reply) {
     el(
       "header",
       {},
-      seal(),
+      el("img", { className: "logo", src: "icons/shu.svg", alt: "SHU" }),
       el(
         "div",
         { style: "min-width: 0" },

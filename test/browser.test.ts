@@ -274,6 +274,13 @@ describe("extension", () => {
     expect(manifest.permissions).toContain("nativeMessaging");
   });
 
+  test("ships every icon its manifest names", () => {
+    const manifest = JSON.parse(readFileSync(join(BROWSER, "chrome/manifest.json"), "utf8"));
+    for (const path of Object.values({ ...manifest.icons, ...manifest.action.default_icon }) as string[]) {
+      expect(existsSync(join(BROWSER, "chrome", path))).toBe(true);
+    }
+  });
+
   test.each([
     ["github:example-org/example-repo#482", "https://github.com/example-org/example-repo/issues/482"],
     ["linear:ABC-123", "https://linear.app/issue/ABC-123"],
