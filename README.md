@@ -46,6 +46,15 @@ npx skills add dim0627/shu
 
 The repository holds two skills, and the installer asks which to add. If you installed `shu` before `shu-triage` existed, add it with `npx skills add dim0627/shu --skill shu-triage`: `npx skills update` only updates what is already installed. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks every task in hand against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
 
+### Chrome extension
+
+`browser/` holds a Chrome extension that marks the toolbar icon when a task refs the page you are on (a pull request, a Linear issue, a Notion page, any URL a task holds). Its popup shows the task's status, note, artifacts, the last three log entries, and body. It only reads. It needs `python3` and a clone of this repository:
+
+1. Open `chrome://extensions`, turn on Developer mode, and load `browser/chrome` with "Load unpacked"
+2. Copy the extension's ID from that page, and run `sh browser/install.sh <ID>`
+
+Chrome does not let an extension run programs, so the extension asks `browser/host.py`, which Chrome starts through Native Messaging, and which asks `shu`. `install.sh` registers the script for that extension only. The ID stays the same while the folder does not move; after a move, load it again and rerun `install.sh`. Chrome started from the Dock gets a short `PATH`, so the script also looks for `shu` in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`.
+
 ## Quick start
 
 ```sh
@@ -231,7 +240,7 @@ The full specification is in [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Out of scope
 
-The `shu` CLI deliberately does not collect data from GitHub, Linear, or Slack, and nothing in this repository calls an AI, runs as an MCP server, or serves a web UI. Gathering and understanding is the agent's job; the CLI only stores the result. The one exception is the `shu-triage` skill, which queries GitHub and your deploy tags from outside the CLI.
+The `shu` CLI deliberately does not collect data from GitHub, Linear, or Slack, and nothing in this repository calls an AI, runs as an MCP server, or serves a web UI. Gathering and understanding is the agent's job; the CLI only stores the result. The one exception is the `shu-triage` skill, which queries GitHub and your deploy tags from outside the CLI. The Chrome extension is not a web UI in that sense: it shows what `shu` prints for the page you are on, and serves nothing.
 
 ## License
 
