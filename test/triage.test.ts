@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { CLI, cleanupHomes, create, shu, spawnCollect, tempHome } from "./helpers";
+import { cleanupHomes, create, executable, SHU_STAND_IN, shu, spawnCollect, tempHome } from "./helpers";
 
 setDefaultTimeout(30_000);
 
@@ -35,11 +35,6 @@ interface World {
   // Which programs exist on PATH. Leaving one out is how a machine without it looks
   programs?: ("shu" | "gh" | "git")[];
   deployConfig?: false | { pattern?: string; cloneExists?: boolean };
-}
-
-function executable(path: string, content: string): void {
-  writeFileSync(path, content);
-  chmodSync(path, 0o755);
 }
 
 const searchRow = (pr: OwnPr) => ({
@@ -107,7 +102,7 @@ async function triage(home: string, world: World = {}) {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const programs = world.programs ?? ["shu", "gh", "git"];
-  if (programs.includes("shu")) executable(join(bin, "shu"), `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`);
+  if (programs.includes("shu")) executable(join(bin, "shu"), SHU_STAND_IN);
   if (programs.includes("gh")) executable(join(bin, "gh"), FAKE_GH);
   if (programs.includes("git")) executable(join(bin, "git"), FAKE_GIT);
 

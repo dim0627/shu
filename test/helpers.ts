@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Ctx } from "../src/commands";
@@ -18,6 +18,14 @@ export function tempHome(): string {
   homes.push(home);
   return home;
 }
+
+export function executable(path: string, content: string): void {
+  writeFileSync(path, content);
+  chmodSync(path, 0o755);
+}
+
+// A shu that runs this checkout, for scripts that look shu up on PATH
+export const SHU_STAND_IN = `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`;
 
 export function testCtx(overrides: Partial<Ctx> = {}): Ctx {
   return { home: tempHome(), now: () => new Date(), random: Math.random, ...overrides };

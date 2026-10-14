@@ -1,4 +1,4 @@
-import { lookup } from "./lookup.js";
+import { lookup, refLink, showBadge } from "./lookup.js";
 
 const root = document.getElementById("root");
 
@@ -24,6 +24,14 @@ function copyButton(text, label = "Copy") {
 
 // "2026-10-14T16:52:08+09:00" -> "10/14 16:52", in the offset the entry was written with
 const shortTime = (at) => `${at.slice(5, 7)}/${at.slice(8, 10)} ${at.slice(11, 16)}`;
+
+function refItem(ref) {
+  const { kind, label, href } = refLink(ref);
+  const name = href
+    ? el("a", { className: "name", href, target: "_blank", rel: "noreferrer", textContent: label, title: href })
+    : el("span", { className: "name", textContent: label });
+  return el("li", {}, el("span", { className: "pill", textContent: kind }), name, copyButton(href ?? ref, "Copy"));
+}
 
 function heading(text, count) {
   return el("h2", {}, text, count === null ? null : el("span", { className: "count", textContent: count }));
@@ -64,6 +72,10 @@ function render(reply) {
       "main",
       {},
       task.note ? el("div", { className: "note", textContent: task.note }) : null,
+      heading("Refs", task.refs.length ? `${task.refs.length}` : null),
+      task.refs.length === 0
+        ? el("div", { className: "none", textContent: "None" })
+        : el("ul", { className: "files refs" }, ...task.refs.map(refItem)),
       heading("Artifacts", artifacts.length ? `${artifacts.length}` : null),
       artifacts.length === 0
         ? el("div", { className: "none", textContent: "None yet" })
@@ -104,4 +116,7 @@ function render(reply) {
 }
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-render(await lookup(tab?.url));
+const reply = await lookup(tab?.url);
+render(reply);
+// The badge may predate a save made since; this answer is the newest
+if (tab?.id !== undefined) showBadge(tab.id, reply).catch(() => {});
