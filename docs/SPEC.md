@@ -316,7 +316,7 @@ SHU is built on the assumption that several agents call it at the same time.
 - Data collection (connecting to GitHub, Linear, or Slack). The one exception is the `shu-triage` skill (§10.1), which does it from outside the CLI
 - Calling an AI
 - An MCP server
-- A web view or a local server
+- A web view or a local server. The browser extension (§11) is neither: it shows what the CLI prints for one page, through a script the browser starts for each lookup, and listens on nothing
 
 ## 10. Skills
 
@@ -356,3 +356,15 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
 - Files, under `~/.local/state/shu-triage/` (`XDG_STATE_HOME`; `SHU_TRIAGE_STATE` overrides): `last.md`, `runs.jsonl` (one line per run: counts per status and the IDs under each mark), and `backup/<time>/` with a copy of every `task.md` read, because a body or a note overwritten by `save` is kept nowhere else. A task whose copy could not be made is named in a `WARNING` line
 - Config, at `~/.config/shu-triage/config.json` (`XDG_CONFIG_HOME`; `SHU_TRIAGE_CONFIG` overrides): `{"deployTags": {"<owner>/<repo>": {"clone": "<path>", "pattern": "<tag pattern>"}}}`. The pattern is used both as a fetch refspec and as a `git tag` pattern, so it may hold one `*` and no `?` or `[`. Without the config there is no `shipped` mark
 - Tests run the script against a temporary `SHU_HOME`, `SHU_TRIAGE_STATE`, and `SHU_TRIAGE_CONFIG`, with stand-ins for `gh` and `git` on `PATH`, so they stay offline and never touch the real `~/.local/state` or `~/.config`
+
+## 11. Browser extension
+
+While the user reads a pull request, a ticket, or a document in the browser, the task that refs it, and what is already stored for it (artifacts, the latest log entries), is one lookup away: `shu find --ref` with the page's URL. `browser/` puts that lookup in Chrome.
+
+- `browser/chrome/` is the extension. For each page it shows, it marks the toolbar icon when a task refs the page, and its popup shows the task's ID, status, kind, note, artifact names (each with a button that copies its path), the last three log entries with how many there are, and the body
+- **It only reads.** It changes nothing in SHU and offers no command that does
+- An extension cannot run programs, so it asks `browser/host.py` through Chrome's Native Messaging. Chrome starts the script for a lookup and stops it after. The script runs outside the CLI, with `python3` (standard library only), and answers through `shu find --ref`, `shu show --log 3`, and `shu path`, the same JSON any consumer reads (§6). The CLI knows nothing of the browser
+- A message is `{"url": "<page URL>"}`. The answer is `{"task": null}` when the page is not `http(s)`, when `shu` cannot read the URL as a ref (`invalid_ref`), or when no task refs it (`not_found`); otherwise the output of `shu show` with `"path"` (the task directory) added. Any other failure of `shu`, or a `shu` that cannot be found, is passed on as `{"error": {"code", "message"}}` and shown as such, never as "no task"
+- Chrome starts the script with the `PATH` it was started with, which from the Dock holds only the system directories. The script looks for `shu` on `PATH`, then in `~/.local/bin` (where `scripts/install.sh` puts it), `/opt/homebrew/bin`, and `/usr/local/bin`
+- `browser/install.sh <extension ID>` registers the script with Chrome (macOS and Linux) for that one extension. The extension is loaded unpacked from a clone of this repository; it is not published to the Chrome Web Store, and the release (§8) does not ship it
+- Tests run the script against a temporary `SHU_HOME`, with a stand-in for `shu` on `PATH` that runs the checkout, and point `install.sh` at a temporary directory (`SHU_CHROME_HOSTS_DIR`). The extension's own pages are not tested automatically
