@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>SHU</title>
+  <rect x="6" y="6" width="116" height="116" rx="26" fill="#e2401c"/>
+  <rect x="15" y="15" width="98" height="98" rx="19" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="2.5"/>
+  <g fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M47 27 L38 41"/>
+    <path d="M40 47 H90"/>
+    <path d="M30 67 H98"/>
+    <path d="M64 30 V106"/>
+    <path d="M61 72 Q52 92 33 101"/>
+    <path d="M67 72 Q76 92 95 101"/>
+  </g>
+</svg>
