@@ -70,6 +70,7 @@
       }
       .status-open { background: var(--shu-soft); color: var(--shu); }
       .status-waiting { background: var(--wait-soft); color: var(--wait); }
+      .status-todo { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
       .status-done { background: var(--ok-soft); color: var(--ok); }
       .status-dropped { text-decoration: line-through; }
       .id { font: 11px var(--mono); color: var(--muted); }
@@ -97,6 +98,9 @@
       .files { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 8px; }
       .files li { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; }
       .files li + li { border-top: 1px solid var(--line); }
+      .refs a { color: var(--text); text-decoration: none; }
+      .refs a:hover { color: var(--shu); text-decoration: underline; }
+      .refs .pill { flex: none; font-size: 10px; }
       .files .name { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
       .timeline { position: relative; margin: 0; padding: 0 0 0 16px; list-style: none; }
       .timeline::before {
