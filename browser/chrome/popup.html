@@ -3,22 +3,152 @@
   <head>
     <meta charset="utf-8" />
     <style>
-      body { width: 420px; margin: 0; padding: 12px; font: 13px/1.5 system-ui, sans-serif; }
-      h1 { font-size: 15px; margin: 0 0 4px; }
-      h2 { font-size: 12px; margin: 12px 0 4px; color: #666; text-transform: uppercase; }
-      .meta, .empty { color: #666; }
-      .note { margin-top: 4px; }
-      .error { color: #b00020; white-space: pre-wrap; }
-      pre { white-space: pre-wrap; margin: 0; font: inherit; }
-      ul { margin: 0; padding-left: 18px; }
-      .entry { margin-bottom: 8px; }
-      .entry .at { color: #666; font-size: 12px; }
-      .body { max-height: 160px; overflow: auto; }
-      button { font: inherit; font-size: 12px; margin-left: 4px; }
+      :root {
+        --shu: #e2401c;
+        --shu-soft: #fdeee9;
+        --bg: #ffffff;
+        --surface: #f7f6f4;
+        --line: #ebe8e4;
+        --text: #1f1d1b;
+        --muted: #79736d;
+        --ok: #2f855a;
+        --ok-soft: #e6f4ec;
+        --wait: #b7791f;
+        --wait-soft: #fbf1e0;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --shu: #ff6a45;
+          --shu-soft: #3a211b;
+          --bg: #1c1b1a;
+          --surface: #252422;
+          --line: #34322f;
+          --text: #ece9e5;
+          --muted: #9b958e;
+          --ok: #68d391;
+          --ok-soft: #1f3328;
+          --wait: #f6c26b;
+          --wait-soft: #3a3020;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 400px;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.6 system-ui, -apple-system, "Hiragino Sans", sans-serif;
+      }
+      header {
+        display: flex;
+        gap: 12px;
+        padding: 16px 16px 14px;
+        border-top: 3px solid var(--shu);
+        border-bottom: 1px solid var(--line);
+      }
+      .seal {
+        flex: none;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: var(--shu);
+        color: #fff;
+        font: 700 19px/1 "Hiragino Mincho ProN", "Yu Mincho", serif;
+      }
+      h1 { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 650; overflow-wrap: anywhere; }
+      .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+      .pill {
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--surface);
+        color: var(--muted);
+      }
+      .status-open { background: var(--shu-soft); color: var(--shu); }
+      .status-waiting { background: var(--wait-soft); color: var(--wait); }
+      .status-done { background: var(--ok-soft); color: var(--ok); }
+      .status-dropped { text-decoration: line-through; }
+      .id { font: 11px var(--mono); color: var(--muted); }
+      main { padding: 4px 16px 16px; }
+      .note {
+        margin: 12px 0 0;
+        padding: 8px 10px;
+        border-left: 3px solid var(--shu);
+        border-radius: 0 6px 6px 0;
+        background: var(--surface);
+      }
+      h2 {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: 16px 0 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      h2 .count { font-weight: 500; letter-spacing: 0; text-transform: none; }
+      .none { color: var(--muted); font-size: 12px; }
+      .files { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 8px; }
+      .files li { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; }
+      .files li + li { border-top: 1px solid var(--line); }
+      .files .name { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+      .timeline { position: relative; margin: 0; padding: 0 0 0 16px; list-style: none; }
+      .timeline::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 6px;
+        bottom: 6px;
+        width: 1px;
+        background: var(--line);
+      }
+      .timeline li { position: relative; padding-bottom: 10px; }
+      .timeline li::before {
+        content: "";
+        position: absolute;
+        left: -16px;
+        top: 6px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--bg);
+        border: 2px solid var(--muted);
+      }
+      .timeline li:first-child::before { border-color: var(--shu); background: var(--shu); }
+      .at { font-size: 11px; color: var(--muted); }
+      pre { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+      details { border: 1px solid var(--line); border-radius: 8px; }
+      summary { padding: 6px 10px; cursor: pointer; color: var(--muted); font-size: 12px; }
+      details pre { max-height: 180px; overflow: auto; padding: 0 10px 10px; }
+      button {
+        flex: none;
+        padding: 2px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--muted);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--shu); color: var(--shu); }
+      button.done { border-color: var(--ok); color: var(--ok); }
+      .state { display: flex; align-items: center; gap: 12px; padding: 16px; border-top: 3px solid var(--line); }
+      .state .seal { background: var(--surface); color: var(--muted); }
+      .state.error { border-top-color: var(--shu); }
+      .state.error .seal { background: var(--shu-soft); color: var(--shu); }
+      .state p { margin: 0; color: var(--muted); }
+      .state.error p { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
-    <div id="root" class="empty">Looking up…</div>
+    <div id="root"><div class="state"><div class="seal">朱</div><p>Looking up…</p></div></div>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

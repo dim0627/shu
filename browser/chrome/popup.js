@@ -10,53 +10,96 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-function copyButton(text) {
-  const button = el("button", { textContent: "Copy" });
+const seal = () => el("div", { className: "seal", textContent: "朱" });
+
+function copyButton(text, label = "Copy") {
+  const button = el("button", { textContent: label, title: text });
   button.addEventListener("click", async () => {
     await navigator.clipboard.writeText(text);
     button.textContent = "Copied";
+    button.classList.add("done");
   });
   return button;
 }
 
+// "2026-10-14T16:52:08+09:00" -> "10/14 16:52", in the offset the entry was written with
+const shortTime = (at) => `${at.slice(5, 7)}/${at.slice(8, 10)} ${at.slice(11, 16)}`;
+
+function heading(text, count) {
+  return el("h2", {}, text, count === null ? null : el("span", { className: "count", textContent: count }));
+}
+
+function state(message, className = "") {
+  root.replaceChildren(el("div", { className: `state ${className}` }, seal(), el("p", { textContent: message })));
+}
+
 function render(reply) {
-  root.className = "";
-  if (reply.error) {
-    root.replaceChildren(el("div", { className: "error", textContent: reply.error.message }));
-    return;
-  }
-  if (!reply.task) {
-    root.className = "empty";
-    root.textContent = "No SHU task refs this page.";
-    return;
-  }
+  if (reply.error) return state(reply.error.message, "error");
+  if (!reply.task) return state("No SHU task refs this page.");
+
   const { task, log, log_total, artifacts, path } = reply;
   const artifactDir = `${path}/artifacts`;
+  const status = /^[a-z]+$/.test(task.status) ? task.status : "";
+
   root.replaceChildren(
-    el("h1", { textContent: task.title }),
-    el("div", { className: "meta" }, `${task.id} · ${task.status} · ${task.kind}`, copyButton(task.id)),
-    task.note ? el("div", { className: "note", textContent: task.note }) : null,
-    el("h2", { textContent: `Artifacts (${artifacts.length})` }),
-    artifacts.length === 0
-      ? el("div", { className: "empty", textContent: "None" })
-      : el("ul", {}, ...artifacts.map((name) => el("li", {}, name, copyButton(`${artifactDir}/${name}`)))),
-    el("h2", { textContent: log.length < log_total ? `Log (last ${log.length} of ${log_total})` : "Log" }),
-    log.length === 0
-      ? el("div", { className: "empty", textContent: "None" })
-      : el(
+    el(
+      "header",
+      {},
+      seal(),
+      el(
+        "div",
+        { style: "min-width: 0" },
+        el("h1", { textContent: task.title }),
+        el(
           "div",
-          {},
-          ...log.map((e) =>
-            el(
-              "div",
-              { className: "entry" },
-              el("div", { className: "at", textContent: `${e.at} ${e.author}` }),
-              el("pre", { textContent: e.message }),
+          { className: "meta" },
+          el("span", { className: `pill status-${status}`, textContent: task.status }),
+          el("span", { className: "pill", textContent: task.kind }),
+          el("span", { className: "id", textContent: task.id }),
+          copyButton(task.id, "Copy ID"),
+        ),
+      ),
+    ),
+    el(
+      "main",
+      {},
+      task.note ? el("div", { className: "note", textContent: task.note }) : null,
+      heading("Artifacts", artifacts.length ? `${artifacts.length}` : null),
+      artifacts.length === 0
+        ? el("div", { className: "none", textContent: "None yet" })
+        : el(
+            "ul",
+            { className: "files" },
+            ...artifacts.map((name) =>
+              el(
+                "li",
+                {},
+                el("span", { className: "name", textContent: name }),
+                copyButton(`${artifactDir}/${name}`, "Copy path"),
+              ),
             ),
           ),
-        ),
-    task.body ? el("h2", { textContent: "Body" }) : null,
-    task.body ? el("pre", { className: "body", textContent: task.body }) : null,
+      heading("Latest log", log.length < log_total ? `${log.length} of ${log_total}` : null),
+      log.length === 0
+        ? el("div", { className: "none", textContent: "None yet" })
+        : el(
+            "ol",
+            { className: "timeline" },
+            ...log
+              .toReversed()
+              .map((e) =>
+                el(
+                  "li",
+                  {},
+                  el("div", { className: "at", textContent: `${shortTime(e.at)} · ${e.author}` }),
+                  el("pre", { textContent: e.message }),
+                ),
+              ),
+          ),
+      task.body
+        ? el("details", { open: true, style: "margin-top: 16px" }, el("summary", { textContent: "Body" }), el("pre", { textContent: task.body }))
+        : null,
+    ),
   );
 }
 
