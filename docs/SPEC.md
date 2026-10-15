@@ -7,7 +7,7 @@ SHU (朱) is a local task store CLI through which humans and AI agents (mainly C
 - **SHU does not collect data.** Gathering information from GitHub, Linear, Slack and so on is the AI agent's job (`gh`, MCP). The one place this repository does it is the `shu-triage` skill (§10), which runs outside the CLI.
 - **SHU's only responsibility is file input and output.** Listing tasks, fetching a task, saving a task, appending to its log, and storing artifacts.
 - **SHU exists to enforce a few guarantees.** By going through SHU instead of editing Markdown directly, an agent gets the following:
-  1. The same piece of work never becomes two tasks (dedupe by reference)
+  1. The same piece of work never becomes two tasks (dedupe by reference). A task without refs has nothing to dedupe by, so for it this rests on the `shu` skill (§10), which has the agent look through the list before creating one
   2. IDs never collide (even between agents running in parallel)
   3. The format never breaks (schema validation)
   4. The log is append-only (the past is never rewritten)
@@ -18,7 +18,7 @@ SHU (朱) is a local task store CLI through which humans and AI agents (mainly C
 | Concept | Description |
 |---|---|
 | Task | A unit of work: a review request, review feedback on your own PR, a bug investigation, an alert investigation, a fix request, an assigned ticket, and so on |
-| Ref | A pointer to where a task came from. A task can have several refs (for example, work that grew from a Slack thread into a ticket and then a PR) |
+| Ref | A pointer to where a task came from. A task can have several refs (for example, work that grew from a Slack thread into a ticket and then a PR), or none (work that started in a conversation with an agent; a ref is added when a ticket or a PR appears) |
 | Log | A chronological record of what happened to a task and what was learned. Append-only |
 | Artifact | A file attached to a task: a brief, an investigation report, a fix plan, and so on |
 
@@ -322,6 +322,7 @@ SHU is built on the assumption that several agents call it at the same time.
 
 - `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. The skills are installed with `npx skills add dim0627/shu`
 - The `shu` skill is kept thin: when to reach for SHU, when to log, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
+- The skill reaches for SHU for any work worth picking up again or looking back on, whatever it came from: a PR, a ticket, a Slack thread, a document, or only a conversation (a verification, an investigation, a design discussion) that reached a conclusion or a next step. A question answered on the spot is not a task. Before it creates a task without refs, the agent looks for the same work in `shu list` (also `--status todo`) and updates that task by `id` if it is there, and a ref that appears later is added to the existing task. The CLI has no other key to dedupe such a task by: a free-form key chosen by the agent would not be chosen the same way twice, so it would catch no more than reading the list does
 - The one thing written in both is when to log: the moments that call for an entry (a lookup or a subagent returns, the user voices a concern, a preference, or a decision, the agent is about to wait for an answer), and that an entry is written before anything is settled. An agent can learn the commands from `shu --help` without loading the skill, and one that does would otherwise never be told when to log. A test keeps the moments named in the help and in the skill's "When to log" section the same, in both directions, and checks that both carry the two sentences on what is unsettled. The skill's description and this section repeat the moments and are kept in step by hand
 - The `shu` skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
 
@@ -350,6 +351,7 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
   | `shipped` | `waiting`, all pull requests merged, at least one of them in a repository with a configured deploy tag, and all of those in a tag |
   | `blank` | `open` or `waiting`, no pull request, and an empty body or no log entry other than the skill's own (author `shu-triage`) |
 
+- A task without refs has no source to check, so it can carry `blank` and nothing else. The skill has the agent read every such task and ask the user whether to close one whose work reads as finished
 - A mark depends only on the task's status and what the lookups return, so a task the agent rightly left as it is carries the same mark on the next run. The skill has the agent say in its answer what it did with every marked task
 - **A lookup that fails is reported, not treated as "nothing found".** The first line of the output is then `LOOKUPS FAILED`, followed by what failed; otherwise it is `lookups: all succeeded`. A failure can remove a mark and can also add a wrong one (a failed search hides an open pull request that only its title ties to a task, so the task reads as `merged`). A program or a clone directory that is missing counts as a failed lookup. A GraphQL response is read per ref, so one unreadable ref does not discard the others. Only a failing `shu` stops the script, with how to install the latest
 - Standard output is short enough for an agent to read whole: for each task one line with its marks, then one line per pull request and one for the refs that were not looked up. The full text (body and the last three log entries of each task) goes to a file, whose path is the last line

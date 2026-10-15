@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work that came from a PR, ticket, Slack thread, or document such as a Notion page, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work worth picking up again later, whether it came from a PR, ticket, Slack thread, or document such as a Notion page, or only from a conversation that reached a conclusion or a next step, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
 ---
 
 # shu — the task store
@@ -17,6 +17,20 @@ If it is not installed, add it with `npx skills add dim0627/shu --skill shu-tria
 answer from `shu list` and say that the list is unchecked.
 
 If `shu` is missing, or rejects a command, option, or field shown here, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
+
+## When to make a task
+
+Make one for any work the next session could pick up or look back on, whatever
+it came from: a PR, a ticket, a Slack thread, a document, or only a conversation
+(a verification, an investigation, a design discussion, a tool you are building)
+that reached a conclusion or a next step. A question answered on the spot is not
+a task: the list is only useful while it holds work.
+
+Before you create a task without refs, look for it: `shu list` and
+`shu list --status todo`. If the same work is there, update that task by `id`.
+`save` can only dedupe by refs, so for a task without them this check is the
+only thing that keeps it from becoming two. When a PR or a ticket appears later,
+add its ref to the existing task by `id` instead of creating another.
 
 ## Cheatsheet
 
@@ -58,7 +72,8 @@ Say in the entry when something is unverified or undecided.
 
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread, Notion page), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
-  can never create a duplicate. Pass URLs as they are; SHU normalizes them.
+  can never create a duplicate. Pass URLs as they are; SHU normalizes them. Work
+  that lives nowhere else has no refs: see "When to make a task".
 - **note**: every `waiting` task gets one, naming who or what it waits on.
   `shu list` shows it, so the reason is readable without opening the task.
 - **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
