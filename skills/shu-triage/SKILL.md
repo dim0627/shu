@@ -19,8 +19,9 @@ marks the tasks whose copy may disagree with its source.
    - The first line is `LOOKUPS FAILED`: tell the user which lookup failed. On
      that run a mark can be wrong and a task without one is unchecked.
 2. Open the full-text file the last line names. Read the block of every marked
-   task, every `waiting` task, and every task you might recommend, until you can
-   say for each one, in one line, what work remains and whose move it is.
+   task, every `waiting` task, every task without refs, and every task you might
+   recommend, until you can say for each one, in one line, what work remains
+   and whose move it is.
 3. Bring each of those tasks up to date in SHU (the marks below say how), then
    recommend only tasks the user can start now, each with its remaining work.
    Your answer also lists every marked task: its ID, its mark, and the change you
@@ -48,6 +49,9 @@ Issues, and pull requests closed without merging, do not count toward a mark.
   Look them up with your own tools before recommending that task, and for a
   `waiting` task that waits on a reply. A task that waits on the user's own
   decision goes in your answer as theirs to decide.
+- A task without refs has nothing to check it against, so it is `blank` at most,
+  and once it has a body and a log it carries no mark at all. Judge it from its
+  body and log: if the work reads as finished, ask the user whether to close it.
 - `(matched by title: add it as a ref)`: the pull request's title carries the
   task's ticket key. Add it now, `echo '{"id": "<id>", "refs": ["<owner>/<repo>#<n>"]}' | shu save`:
   a merged pull request matched only by title drops out of the search after 14 days.
