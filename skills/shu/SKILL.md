@@ -26,8 +26,8 @@ it came from: a PR, a ticket, a Slack thread, a document, or only a conversation
 that reached a conclusion or a next step. A question answered on the spot is not
 a task: the list is only useful while it holds work.
 
-Before you create a task without refs, look for it: `shu list` and
-`shu list --status todo`. If the same work is there, update that task by `id`.
+Before you create a task without refs, look for it in `shu list --all`, which
+holds closed tasks too. If the same work is there, update that task by `id`.
 `save` can only dedupe by refs, so for a task without them this check is the
 only thing that keeps it from becoming two. When a PR or a ticket appears later,
 add its ref to the existing task by `id` instead of creating another.

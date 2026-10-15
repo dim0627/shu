@@ -8,7 +8,7 @@ It is built for working alongside a coding agent such as Claude Code. The agent 
 
 Agents can edit files on their own. SHU sits in between to enforce a few guarantees that are easy to break by hand, especially when several agents run at once:
 
-- **No duplicate tasks.** A task is looked up by its references (a PR, a ticket, a Slack thread, a Notion page) before a new one is created. Work that started in a conversation can have no reference yet; for it, the bundled skill has the agent check the task list first.
+- **No duplicate tasks.** A task is looked up by its references (a PR, a ticket, a Slack thread, a Notion page) before a new one is created. Work that started in a conversation can have no reference yet; for it, the bundled skill has the agent check every task first, closed ones included.
 - **No ID collisions.** IDs are allocated by atomically creating the task directory.
 - **No malformed tasks.** Input and stored files are validated against a schema.
 - **History is append-only.** There is no command that rewrites or deletes a log entry.
