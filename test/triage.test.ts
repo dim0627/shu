@@ -160,6 +160,17 @@ function snapshot(root: string): [string, string][] {
 
 const ticket = (extra: Record<string, unknown>) => ({ title: "Task", kind: "ticket", ...extra });
 
+// Writing task.md again puts updated at or after every entry, so a test that logs does not drift into log-ahead
+const settle = (home: string, id: string) => shu(home, ["save"], JSON.stringify({ id }));
+
+// Entries with chosen timestamps, to place them before or after the task's updated without waiting on the clock
+function writeLog(home: string, id: string, entries: [at: string, author: string, message: string][]) {
+  const text = entries.map(([at, author, message]) => `## ${at} ${author}\n${message}\n\n`).join("");
+  writeFileSync(join(home, "tasks", id, "log.md"), text);
+}
+const PAST = "2020-01-01T00:00:00+09:00";
+const FUTURE = "2099-01-01T00:00:00+09:00";
+
 describe("shu-triage: merged and started", () => {
   test("merged marks an open task whose pull requests are all merged, and not one with a pull request still open", async () => {
     const home = tempHome();
@@ -335,9 +346,11 @@ describe("shu-triage: blank", () => {
     const noLog = await create(home, ticket({ refs: ["ABC-1"], body: "Some text" }));
     const noBody = await create(home, ticket({ refs: ["ABC-2"] }));
     await shu(home, ["log", noBody, "Looked into it"]);
+    await settle(home, noBody);
     const waiting = await create(home, ticket({ status: "waiting", refs: ["ABC-3"], body: "Some text" }));
     const written = await create(home, ticket({ refs: ["ABC-4"], body: "Some text" }));
     await shu(home, ["log", written, "Looked into it"]);
+    await settle(home, written);
     const todo = await create(home, ticket({ status: "todo", refs: ["ABC-5"] }));
 
     const { stdout } = await triage(home);
@@ -360,6 +373,47 @@ describe("shu-triage: blank", () => {
 
     expect(marks(stdout, issueOnly)).toBe("blank");
     expect(marks(stdout, ownLogOnly)).toBe("blank");
+  });
+});
+
+describe("shu-triage: log-ahead", () => {
+  test("log-ahead marks a task in hand whose log has an entry newer than its last update", async () => {
+    const home = tempHome();
+    const open = await create(home, ticket({ refs: ["ABC-1"], body: "x", note: "Next: aggregate" }));
+    writeLog(home, open, [[PAST, "claude", "Planned the aggregate"], [FUTURE, "claude", "Aggregated: 3 hits"]]);
+    const waiting = await create(home, ticket({ status: "waiting", refs: ["ABC-2"], body: "x" }));
+    writeLog(home, waiting, [[FUTURE, "claude", "The reply came"]]);
+    const todo = await create(home, ticket({ status: "todo", refs: ["ABC-3"], body: "x" }));
+    writeLog(home, todo, [[FUTURE, "claude", "Scoped it"]]);
+    const settled = await create(home, ticket({ refs: ["ABC-4"], body: "x" }));
+    writeLog(home, settled, [[PAST, "claude", "Looked into it"]]);
+    const done = await create(home, ticket({ status: "done", refs: ["ABC-5"], body: "x" }));
+    writeLog(home, done, [[FUTURE, "claude", "Shipped"]]);
+
+    const { stdout, state } = await triage(home);
+
+    expect(marks(stdout, open)).toBe("log-ahead");
+    expect(marks(stdout, waiting)).toBe("log-ahead");
+    expect(marks(stdout, todo)).toBe("log-ahead");
+    expect(marks(stdout, settled)).toBe("-");
+    expect(stdout).not.toContain(done);
+    expect(readFileSync(join(state, "last.md"), "utf8")).toContain(
+      `log-ahead: 1 of 2 log entries are newer than updated; read them all: shu show ${open}`,
+    );
+  });
+
+  test("the skill's own entries do not count, and shu log --note brings the task up to its log", async () => {
+    const home = tempHome();
+    const ownOnly = await create(home, ticket({ refs: ["ABC-1"], body: "x" }));
+    writeLog(home, ownOnly, [[PAST, "claude", "Looked into it"], [FUTURE, "shu-triage", "Left as it is"]]);
+    const noted = await create(home, ticket({ refs: ["ABC-2"], body: "x" }));
+    await shu(home, ["log", noted, "Found the cause"]);
+    await shu(home, ["log", noted, "The note still holds", "--note", "Next: write the fix"]);
+
+    const { stdout } = await triage(home);
+
+    expect(marks(stdout, ownOnly)).toBe("-");
+    expect(marks(stdout, noted)).toBe("-");
   });
 });
 
@@ -467,6 +521,7 @@ describe("shu-triage: a failed lookup is not read as nothing found", () => {
     const merged = await create(home, ticket({ refs: [`${REPO}#1`] }));
     const unreadable = await create(home, ticket({ refs: ["example-org/gone#5"], body: "x" }));
     await shu(home, ["log", unreadable, "Looked into it"]);
+    await settle(home, unreadable);
 
     const { stdout, exitCode } = await triage(home, { prs: { [`${REPO}#1`]: { state: "MERGED" } } });
 
@@ -567,6 +622,7 @@ describe("shu-triage: what it writes", () => {
     const home = tempHome();
     const id = await create(home, ticket({ refs: [`${REPO}#1`], body: "The body" }));
     for (const message of ["first", "second", "third", "fourth"]) await shu(home, ["log", id, message]);
+    await settle(home, id);
     await create(home, ticket({ status: "waiting", refs: ["ABC-1"] }));
     await create(home, ticket({ status: "todo", refs: ["ABC-2"] }));
     await create(home, ticket({ status: "done", refs: ["ABC-3"] }));

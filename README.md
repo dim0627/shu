@@ -72,15 +72,16 @@ echo '{"refs": ["example-org/example-repo#482", "ABC-123"]}' | shu save
 # => matched 20261001-aoi-kitsune
 
 # Update a task by its ID.
-echo '{"id": "aoi-kitsune", "body": "Waiting for the payment provider to reply."}' | shu save
+echo '{"id": "aoi-kitsune", "body": "A retry without an idempotency key charges twice."}' | shu save
 # => updated 20261001-aoi-kitsune
 
 # Change the status of one or more tasks. The note says why, and "shu list" shows it.
 shu status waiting aoi-kitsune --note "Waiting for the provider to reply"
 # => waiting 20261001-aoi-kitsune
 
-# Record what happened.
+# Record what happened. The note is printed after the entry; --note replaces it.
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
+shu log aoi-kitsune "The provider will ship a fix on Friday." --note "Waiting for Friday's fix"
 
 # Attach a file.
 shu artifact aoi-kitsune ./brief.md
@@ -100,7 +101,7 @@ shu find --ref ABC-123
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
 | `shu status <status> <id>... [--note <text>]` | Set the status of one or more tasks, and with `--note` their note. Nothing is changed if any `<id>` does not name a task. A note that starts with `-` is written `--note="- text"`. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
-| `shu log <id> [message] [--author <name>]` | Append one log entry. Reads the message from standard input if omitted. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
+| `shu log <id> [message] [--author <name>] [--note <text>]` | Append one log entry, then print the task's note. Reads the message from standard input if omitted. `--note` also sets the note. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
 | `shu path <id>` | Print the absolute path of the task directory. |
 | `shu kinds` | List the kinds in use, with the number of tasks of each. |
@@ -130,7 +131,7 @@ Updates by `id` are partial: only the fields you pass are changed, except that a
 | `title` | One line, not empty. |
 | `kind` | Free-form, one line. Suggested values: `review`, `pr-followup`, `bug-investigation`, `alert-investigation`, `fix-request`, `ticket`. `shu kinds` lists the ones already in use. |
 | `status` | `todo` (not started), `open` (in progress), `waiting` (blocked on someone else), `done`, or `dropped`. |
-| `note` | One line, with no control characters, that says why the task is in its status, such as who a `waiting` task is waiting on. `shu list` shows it after the title. Cleared when the status changes without a new note. |
+| `note` | One line, with no control characters, that says where the task stands: why it is in its status, such as who a `waiting` task is waiting on, or the next step of an `open` one. `shu list` shows it after the title, and `shu log` prints it after every entry. Cleared when the status changes without a new note. |
 | `refs` | Normalized references. Each reference belongs to at most one task. |
 | `created`, `updated` | Set by SHU. |
 
@@ -188,7 +189,7 @@ With `--json`, a command prints JSON to standard output and nothing else. Field 
 | `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
 | `status` | `{"tasks": [<task>]}` (without `body`) |
 | `find` | `{"task": <task>}` |
-| `log` | `{"id", "entry": {"at", "author", "message"}}` |
+| `log` | `{"id", "entry": {"at", "author", "message"}, "task": <task>}` (without `body`) |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
 | `kinds` | `{"kinds": [{"kind", "count"}]}` |

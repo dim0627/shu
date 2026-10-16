@@ -103,6 +103,43 @@ describe("appending to the log", () => {
   });
 });
 
+describe("the note beside the log", () => {
+  test("the task comes back with the entry, and without --note task.md is left as it is", () => {
+    const { ctx, id, advance } = setup();
+    commands.setStatus(ctx, "waiting", [id], "Waiting for the provider");
+    const before = readFileSync(taskFile(ctx.home, id), "utf8");
+    advance();
+    const { task } = commands.log(ctx, id, "The provider replied.");
+    expect(task).toMatchObject({ id, status: "waiting", note: "Waiting for the provider" });
+    expect(Date.parse(task.updated)).toBe(T0.getTime());
+    expect(readFileSync(taskFile(ctx.home, id), "utf8")).toBe(before);
+  });
+
+  test("--note sets the note after the entry, so updated is never older than the entry", () => {
+    const { ctx, id, advance } = setup();
+    advance();
+    const { entry, task } = commands.log(ctx, id, "Found the cause.", "claude", "Next: write the fix");
+    expect(task.note).toBe("Next: write the fix");
+    expect(task.status).toBe("open");
+    expect(Date.parse(task.updated)).toBeGreaterThanOrEqual(Date.parse(entry.at));
+    expect(commands.show(ctx, id).task.note).toBe("Next: write the fix");
+  });
+
+  test("--note with the same note still writes, and an empty one clears it", () => {
+    const { ctx, id, advance } = setup();
+    commands.log(ctx, id, "first", "claude", "Next: write the fix");
+    advance();
+    expect(Date.parse(commands.log(ctx, id, "checked", "claude", "Next: write the fix").task.updated)).toBe(T1.getTime());
+    expect(commands.log(ctx, id, "fixed", "claude", "").task.note).toBe("");
+  });
+
+  test("a note that breaks the rules is refused before the entry is written", () => {
+    const { ctx, id } = setup();
+    expect(codeOf(() => commands.log(ctx, id, "entry", "claude", "two\nlines"))).toBe("invalid_input");
+    expect(commands.show(ctx, id).log).toEqual([]);
+  });
+});
+
 describe("reading the log", () => {
   test("reads the example from the spec", () => {
     const text =

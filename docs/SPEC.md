@@ -53,7 +53,7 @@ created: 2026-10-01T12:00:00+09:00
 updated: 2026-10-01T12:34:56+09:00
 ---
 
-(Optional body, such as the current summary of the task. `save` may overwrite it.)
+(Optional body: the background, decisions, and conclusions of the task. `save` may overwrite it.)
 ```
 
 | Field | Type | Required | Description |
@@ -62,10 +62,10 @@ updated: 2026-10-01T12:34:56+09:00
 | `title` | string | ✓ | A one-line heading. Must not be empty |
 | `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket`. `shu kinds` (§6.8) lists the kinds already in use, so that a writer can reuse one instead of adding a near-duplicate |
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
-| `note` | string | | One line, with no control characters, that says why the task is in its status, such as who a `waiting` task is waiting on. `list` shows it. Cleared when the status changes without a new note (§6.3, §6.9) |
+| `note` | string | | One line, with no control characters, that says where the task stands: why it is in its status, such as who a `waiting` task is waiting on, or the next step of an `open` one. `list` shows it, and `log` prints it after every entry (§6.5). Cleared when the status changes without a new note (§6.3, §6.9) |
 | `refs` | string[] | | Normalized refs (§5). No duplicates |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
-| `updated` | ISO 8601 | ✓ | Updated by SHU on every `save` or `status` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9) |
+| `updated` | ISO 8601 | ✓ | Updated by SHU on every `save`, `status`, or `log --note` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9). A `log` without `--note` does not write the task, so a log entry newer than `updated` was written after the note and the body were last touched (§10.1) |
 
 Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept. The exception is a comment attached to a field that SHU removes (`refs` when the last ref is removed, `note` when the note is cleared): it is removed with the field.
 
@@ -154,7 +154,7 @@ Output shape with `--json`:
 | `save` | `{"result": "created" \| "updated" \| "matched", "task": <task>, "skipped": ["<field name>"]}` |
 | `status` | `{"tasks": [<task>]}` (without `body`) |
 | `find` | `{"task": <task>}` |
-| `log` | `{"id", "entry": {"at", "author", "message"}}` |
+| `log` | `{"id", "entry": {"at", "author", "message"}, "task": <task>}` (without `body`) |
 | `artifact` | `{"id", "name", "path"}` |
 | `path` | `{"id", "path"}` |
 | `kinds` | `{"kinds": [{"kind", "count"}]}` |
@@ -250,9 +250,15 @@ Looks up a task from a ref. The input goes through the normalization in §5 befo
 
 If the ref is found on more than one task (which can only happen when files were edited by hand, or when two tasks hold `url` refs that are now read as one ref, §5), it is an error (`ref_conflict`), the same as for `save`.
 
-### 6.5 `shu log <id> [message]`
+### 6.5 `shu log <id> [message] [--note <text>]`
 
-Appends one entry to the log. If `message` is omitted, it is read from standard input. `--author <name>` sets the author. `task.md` (including `updated`) is not changed.
+Appends one entry to the log. If `message` is omitted, it is read from standard input. `--author <name>` sets the author. Without `--note`, `task.md` (including `updated`) is not changed.
+
+The output carries the task as it stands after the command. The human-readable output prints its note (`none` when it has none) and its `updated`, and a line that points at `--note` and at `save`. An agent writes entries as a habit but has no other moment to notice that an entry has outdated the note or the body, so the note is put in front of it every time.
+
+- `--note <text>` sets the note after the entry is appended, under the task lock, the same as `status` does (§6.9) but without changing the status. It can be given only once. An empty text clears it. A text that breaks the rules for a note (§3.1) is an error (`invalid_input`), and nothing is written. A text that starts with `-` is written `--note=<text>`
+- With `--note`, the task is written even when the note is unchanged, so `updated` moves past the entry: it records that the note was checked against it (§10.1)
+- The task is read before the entry is appended, so a `task.md` that cannot be read (`invalid_task`) fails before anything is written. If the note cannot be written after the append (`lock_timeout`), the entry stays and the command fails
 
 A message that starts with `-` would be read as an option. Put it after `--` (`shu log <id> -- "- a bullet"`) or pass it on standard input.
 
@@ -322,6 +328,7 @@ SHU is built on the assumption that several agents call it at the same time.
 
 - `skills/shu/SKILL.md` teaches an agent to read and write task information through SHU. The skills are installed with `npx skills add dim0627/shu`
 - The `shu` skill is kept thin: when to reach for SHU, when to log, what belongs in refs, the body, the log, and artifacts, and a handful of example commands. `shu --help` remains the full usage, and the skill does not restate it
+- The skill tells the agent where each kind of information goes. The next step goes in the note and nowhere else, and the body holds the background, the decisions, and the conclusions, not the current state: a fact written in two places goes stale in one of them. After an entry, `log` prints the note (§6.5), and the skill has the agent update the note (`--note`) or the body when the entry outdated it
 - The skill reaches for SHU for any work worth picking up again or looking back on, whatever it came from: a PR, a ticket, a Slack thread, a document, or only a conversation (a verification, an investigation, a design discussion) that reached a conclusion or a next step. A question answered on the spot is not a task. Before it creates a task without refs, the agent looks for the same work in `shu list --all` and updates that task by `id` if it is there, and a ref that appears later is added to the existing task. The CLI has no other key to dedupe such a task by: a free-form key chosen by the agent would not be chosen the same way twice, so it would catch no more than reading the list does
 - The one thing written in both is when to log: the moments that call for an entry (a lookup or a subagent returns, the user voices a concern, a preference, or a decision, the agent is about to wait for an answer), and that an entry is written before anything is settled. An agent can learn the commands from `shu --help` without loading the skill, and one that does would otherwise never be told when to log. A test keeps the moments named in the help and in the skill's "When to log" section the same, in both directions, and checks that both carry the two sentences on what is unsettled. The skill's description and this section repeat the moments and are kept in step by hand
 - The `shu` skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
@@ -350,11 +357,12 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
   | `started` | `todo`, with an open pull request |
   | `shipped` | `waiting`, all pull requests merged, at least one of them in a repository with a configured deploy tag, and all of those in a tag |
   | `blank` | `open` or `waiting`, no pull request, and an empty body or no log entry other than the skill's own (author `shu-triage`) |
+  | `log-ahead` | `open`, `waiting`, or `todo`, and a log entry other than the skill's own that is newer than the task's `updated`. Such an entry was written after the note, the body, and the status were last touched (§3.1), so they may say less than the log. The skill has the agent read the whole log before it recommends the task, and bring the note and the body up to it |
 
-- A task without refs has no source to check, so it can carry `blank` and nothing else. The skill has the agent read every such task and ask the user whether to close one whose work reads as finished
-- A mark depends only on the task's status and what the lookups return, so a task the agent rightly left as it is carries the same mark on the next run. The skill has the agent say in its answer what it did with every marked task
+- A task without refs has no source to check, so it can carry `blank` and `log-ahead` and nothing else. The skill has the agent read every such task and ask the user whether to close one whose work reads as finished
+- A mark depends only on the task (its status, body, log, and `updated`) and what the lookups return, so a task the agent rightly left as it is carries the same mark on the next run. `log-ahead` is the exception the agent can clear without a change: `shu log --note` with the same note moves `updated` past the log. The skill has the agent say in its answer what it did with every marked task
 - **A lookup that fails is reported, not treated as "nothing found".** The first line of the output is then `LOOKUPS FAILED`, followed by what failed; otherwise it is `lookups: all succeeded`. A failure can remove a mark and can also add a wrong one (a failed search hides an open pull request that only its title ties to a task, so the task reads as `merged`). A program or a clone directory that is missing counts as a failed lookup. A GraphQL response is read per ref, so one unreadable ref does not discard the others. Only a failing `shu` stops the script, with how to install the latest
-- Standard output is short enough for an agent to read whole: for each task one line with its marks, then one line per pull request and one for the refs that were not looked up. The full text (body and the last three log entries of each task) goes to a file, whose path is the last line
+- Standard output is short enough for an agent to read whole: for each task one line with its marks, then one line per pull request and one for the refs that were not looked up. The full text (body and the last three log entries of each task, and for a `log-ahead` task how many entries are newer than `updated`) goes to a file, whose path is the last line
 - Files, under `~/.local/state/shu-triage/` (`XDG_STATE_HOME`; `SHU_TRIAGE_STATE` overrides): `last.md`, `runs.jsonl` (one line per run: counts per status and the IDs under each mark), and `backup/<time>/` with a copy of every `task.md` read, because a body or a note overwritten by `save` is kept nowhere else. A task whose copy could not be made is named in a `WARNING` line
 - Config, at `~/.config/shu-triage/config.json` (`XDG_CONFIG_HOME`; `SHU_TRIAGE_CONFIG` overrides): `{"deployTags": {"<owner>/<repo>": {"clone": "<path>", "pattern": "<tag pattern>"}}}`. The pattern is used both as a fetch refspec and as a `git tag` pattern, so it may hold one `*` and no `?` or `[`. Without the config there is no `shipped` mark
 - Tests run the script against a temporary `SHU_HOME`, `SHU_TRIAGE_STATE`, and `SHU_TRIAGE_CONFIG`, with stand-ins for `gh` and `git` on `PATH`, so they stay offline and never touch the real `~/.local/state` or `~/.config`

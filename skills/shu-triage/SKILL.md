@@ -21,11 +21,17 @@ marks the tasks whose copy may disagree with its source.
 2. Open the full-text file the last line names. Read the block of every marked
    task, every `waiting` task, every task without refs, and every task you might
    recommend, until you can say for each one, in one line, what work remains
-   and whose move it is.
+   and whose move it is. For a `log-ahead` task, read its whole log
+   (`shu show <id>`) first: the block holds only the last three entries.
 3. Bring each of those tasks up to date in SHU (the marks below say how), then
    recommend only tasks the user can start now, each with its remaining work.
-   Your answer also lists every marked task: its ID, its mark, and the change you
-   made (`open → done`) or why you left it.
+   Your answer also lists every marked task: its ID, its title, its mark, and the
+   change you made (`open → done`) or why you left it.
+
+Name every task by its ID and its title, or a few words of it, everywhere in
+the answer, also in a line that names several tasks at once
+(`aoi-kitsune (double charges) / akai-tsuru (login redirect) stay open`). An ID
+alone tells the user nothing.
 
 ## Marks
 
@@ -38,6 +44,7 @@ Issues, and pull requests closed without merging, do not count toward a mark.
 | `started` | todo, and a pull request is open | The work began: `open`, or `waiting` with a note |
 | `shipped` | waiting, every pull request is merged, and the ones in a repository with deploy tags are in a tag | The deploy wait is over. A next step tied to a time ("after tonight's peak") stays `waiting` with that time in the note; otherwise `open` |
 | `blank` | open or waiting, no pull request, and no body or no log | SHU holds too little to judge by: look up its other refs first |
+| `log-ahead` | the log has entries newer than the task's last update, other than this skill's own | The note, the body, and even the status may predate what the log says. Bring the note and the body up to the log; if both still hold, say so with `shu log <id> "<what you checked>" --note "<the note>"`, which updates the task |
 
 ## Rules
 
@@ -49,9 +56,9 @@ Issues, and pull requests closed without merging, do not count toward a mark.
   Look them up with your own tools before recommending that task, and for a
   `waiting` task that waits on a reply. A task that waits on the user's own
   decision goes in your answer as theirs to decide.
-- A task without refs has nothing to check it against, so it is `blank` at most,
-  and once it has a body and a log it carries no mark at all. Judge it from its
-  body and log: if the work reads as finished, ask the user whether to close it.
+- A task without refs has nothing to check it against, so it carries `blank` or
+  `log-ahead` at most. Judge it from its body and log: if the work reads as
+  finished, ask the user whether to close it.
 - `(matched by title: add it as a ref)`: the pull request's title carries the
   task's ticket key. Add it now, `echo '{"id": "<id>", "refs": ["<owner>/<repo>#<n>"]}' | shu save`:
   a merged pull request matched only by title drops out of the search after 14 days.
