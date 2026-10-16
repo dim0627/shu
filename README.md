@@ -44,7 +44,7 @@ cp dist/shu /usr/local/bin/   # or anywhere on your PATH
 npx skills add dim0627/shu
 ```
 
-The repository holds two skills, and the installer asks which to add. If you installed `shu` before `shu-triage` existed, add it with `npx skills add dim0627/shu --skill shu-triage`: `npx skills update` only updates what is already installed. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks every task in hand against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
+The repository holds two skills, and the installer asks which to add. If you installed `shu` before `shu-triage` existed, add it with `npx skills add dim0627/shu --skill shu-triage`: `npx skills update` only updates what is already installed. `shu` tells an agent such as Claude Code when to reach for SHU and what to store in it. `shu-triage` answers "what should I work on next": it checks the tasks in hand (inside a clone, those of its repository) against GitHub (and, if you configure them, your deploy tags) before recommending one, because a task list goes stale. It needs `python3`, `gh`, and `git`. A skill is picked up by matching its description, so it is not guaranteed to fire every time. If you want the agent to reach for SHU more reliably, also add a line about it to your own `CLAUDE.md` or `AGENTS.md`.
 
 ### Chrome extension
 

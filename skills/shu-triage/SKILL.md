@@ -1,19 +1,23 @@
 ---
 name: shu-triage
-description: Check every SHU task in hand against GitHub and the deploy tags, then recommend what to work on. Use when the user asks what to work on next.
+description: Check the SHU tasks in hand (in a clone, those of its repository) against GitHub and the deploy tags, then recommend what to work on. Use when the user asks what to work on next.
 ---
 
 # shu-triage — recommend from facts, not from the list
 
 A task in SHU is a hand-written copy of facts that live elsewhere: a pull request,
 a deploy, a reply. The copy goes stale within the hour. `triage.py`, beside this
-file, reads every open, waiting, and todo task, looks up what a machine can, and
+file, reads the open, waiting, and todo tasks, looks up what a machine can, and
 marks the tasks whose copy may disagree with its source or with its own log.
 
 ## Steps
 
 1. Run `python3 <this folder>/triage.py` every time the question comes up. An
    earlier run in the same session is already stale.
+   - Inside a clone of a GitHub repository it covers only the tasks with a ref
+     in that repository, and its `scope:` line says how many it left out. Add
+     `--all` when the user asks about their work as a whole; otherwise mention
+     the count in your answer.
    - It stops because `shu` is missing or rejects a command: install the latest,
      `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`.
    - The first line is `LOOKUPS FAILED`: tell the user which lookup failed. On
@@ -28,10 +32,14 @@ marks the tasks whose copy may disagree with its source or with its own log.
    Your answer also lists every marked task: its ID, its title, its mark, and the
    change you made (`open → done`) or why you left it.
 
-Name every task by its ID and its title, or a few words of it, everywhere in
-the answer, also in a line that names several tasks at once
+Name every task by its ID and its title, or a few words of it that say what the
+work is, everywhere in the answer, also in a line that names several tasks at once
 (`aoi-kitsune (double charges) / akai-tsuru (login redirect) stay open`). Never
-write an ID alone: it tells the user nothing.
+write an ID alone: it tells the user nothing, and neither does another identifier
+beside it (a ticket key, a pull request number, a work number, a file name). When
+the title opens with one, take the words from what follows: for
+`ABC-412 CSV export times out for large accounts`, write
+`kuroi-hato (CSV export timeout)`, not `kuroi-hato (ABC-412)`.
 
 ## Marks
 

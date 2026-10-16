@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check the tasks in hand against what GitHub and the deploy tags say now.
 
-Reads every open, waiting, and todo task from SHU, looks up the pull requests
+Reads the open, waiting, and todo tasks from SHU (inside a clone of a GitHub
+repository, only those with a ref in it; --all for every one), looks up the pull requests
 they point at, and prints one line per task with a mark where the task disagrees
 with the outside world or with its own log. The full text of each task goes to a file.
 
@@ -26,6 +27,7 @@ INSTALL = "curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts
 # The same shape src/ref.ts accepts for a linear ref. \b would not do: to Python a non-ASCII letter is a word character
 KEY = re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]*)-([0-9]+)(?![A-Za-z0-9])")
 GITHUB_REF = re.compile(r"^github:([^/]+)/([^#]+)#(\d+)$")
+GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
 
 
 def run(args, cwd=None):
@@ -62,6 +64,13 @@ def load_config():
             return json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         sys.exit(f"shu-triage: cannot read the config at {path}: {e}")
+
+
+def current_repo():
+    """The GitHub repository of the clone the script runs in, or None outside one."""
+    code, out, _ = run(["git", "remote", "get-url", "origin"])
+    m = GITHUB_REMOTE.search(out.strip()) if code == 0 else None
+    return f"{m[1]}/{m[2]}".lower() if m else None
 
 
 def github_refs(task):
@@ -260,6 +269,10 @@ def marks_for(task, prs, states, shipped, deploy_repos, has_own_log, log_ahead):
 
 
 def main():
+    args = sys.argv[1:]
+    if args not in ([], ["--all"]):
+        sys.exit("usage: triage.py [--all]")
+    repo = None if args else current_repo()
     now = datetime.datetime.now().astimezone()
     config = load_config()
     deploy_repos = {repo.lower() for repo in (config.get("deployTags") or {})}
@@ -276,6 +289,8 @@ def main():
             key_owner[key] = task
 
     own, problems = search_own_prs(now.date())
+    if repo:
+        own = {pair: pr for pair, pr in own.items() if pair[0] == repo}
 
     # A pull request that no task refs joins a task when its title carries that task's ticket key
     title_matched = {}  # task id -> [pair]
@@ -309,7 +324,12 @@ def main():
     for detail in active:
         task = detail["task"]
         task_prs[task["id"]] = github_refs(task) + title_matched.get(task["id"], [])
-    wanted = {pair for prs in task_prs.values() for pair in prs}
+    left_out = 0
+    if repo:
+        in_repo = [d for d in active if any(pair[0] == repo for pair in task_prs[d["task"]["id"]])]
+        left_out = len(active) - len(in_repo)
+        active = in_repo
+    wanted = {pair for d in active for pair in task_prs[d["task"]["id"]]}
 
     states, more = fetch_states(wanted)
     problems += more
@@ -379,6 +399,8 @@ def main():
     with open(os.path.join(out_dir, "runs.jsonl"), "a", encoding="utf-8") as f:
         record = {
             "at": now.isoformat(timespec="seconds"),
+            "repository": repo,
+            "leftOut": left_out,
             "counts": counts,
             "marks": marked,
             "unmatchedOpenPullRequests": len(unmatched_open),
@@ -396,8 +418,12 @@ def main():
     for task_id in no_backup:
         print(f"WARNING: no backup of {task_id}: its task.md could not be copied")
     print(f"now: {now.strftime('%Y-%m-%d %H:%M %Z')}")
+    if repo:
+        print(f"scope: tasks with a ref in {repo}; {left_out} other tasks in hand left out (--all for every task)")
+    else:
+        print("scope: every task in hand")
     print()
-    print("\n".join(lines))
+    print("\n".join(lines) or "no tasks in scope")
     if unmatched_open:
         print(f"\nOpen pull requests of yours from the last {OPEN_PR_WINDOW_DAYS} days that no task refs:")
         for pr in unmatched_open:
