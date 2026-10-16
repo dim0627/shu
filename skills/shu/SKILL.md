@@ -50,6 +50,7 @@ shu status waiting aoi-kitsune --note "Waiting for the provider to reply" --json
 shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (dropped if abandoned)
 
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
+shu log aoi-kitsune "The provider will ship a fix on Friday." --note "Waiting for Friday's fix" --author claude
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
 ```
 
@@ -68,17 +69,24 @@ bar than a ticket comment.
 
 Say in the entry when something is unverified or undecided.
 
+`shu log` prints the task's note after the entry. If the entry changed where the
+task stands, pass the new note with `--note`; if it settled something the body
+should hold, update the body with `save`.
+
 ## What goes where
 
 - **refs**: every place the work lives (PR, issue, ticket, Slack thread, Notion page), on every
   `save`. `save` finds the existing task by its refs, so a save that carries them
   can never create a duplicate. Pass URLs as they are; SHU normalizes them. Work
   that lives nowhere else has no refs: see "When to make a task".
-- **note**: every `waiting` task gets one, naming who or what it waits on.
-  `shu list` shows it, so the reason is readable without opening the task.
-- **body**: the current summary. Each `save` by `id` that passes `body` replaces it.
-  Fold what is settled into it: `shu-triage` shows the body whole and only the
-  last three log entries.
+- **note**: where the task stands, in one line: for a `waiting` task, who or what
+  it waits on; for an `open` one, the next step. `shu list` shows it, so it is
+  readable without opening the task. The next step lives here only: a copy in
+  the body or in a ticket's todo list goes stale beside it.
+- **body**: background, decisions, and conclusions: what stays true. Not the
+  current state or the next step, which belong to the note. Each `save` by `id`
+  that passes `body` replaces it. Fold what is settled into it: `shu-triage`
+  shows the body whole and only the last three log entries.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a
   new entry.

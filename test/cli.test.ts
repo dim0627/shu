@@ -97,7 +97,9 @@ describe("--json output shape (the contract)", () => {
     const id = await create(home, { title: "t", kind: "ticket" });
     const { exitCode, json } = await shuJson(home, ["log", id, "looked into it"]);
     expect(exitCode).toBe(0);
-    expect(json).toEqual({ id, entry: { at: expect.any(String), author: "unknown", message: "looked into it" } });
+    expect(Object.keys(json)).toEqual(["id", "entry", "task"]);
+    expect(json.entry).toEqual({ at: expect.any(String), author: "unknown", message: "looked into it" });
+    expect(Object.keys(json.task)).toEqual(TASK_KEYS);
   });
 
   test("artifact", async () => {
@@ -224,7 +226,7 @@ describe("argument parsing", () => {
     const id = await create(home, { title: "t", kind: "ticket" });
     const { exitCode, stdout } = await shu(home, ["log", id, "--", "--json"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe(`logged ${id}\n`);
+    expect(stdout).toStartWith(`logged ${id}\n`);
     expect((await shuJson(home, ["show", id])).json.log[0].message).toBe("--json");
   });
 
@@ -488,6 +490,28 @@ describe("log", () => {
     await shu(home, ["log", id, "--author", "claude"], "line one\nline two\n");
     const { json } = await shuJson(home, ["show", id]);
     expect(json.log).toEqual([{ at: expect.any(String), author: "claude", message: "line one\nline two" }]);
+  });
+
+  test("prints the note and when the task was last updated, or the note it set", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const updated = (await shuJson(home, ["show", id])).json.task.updated;
+    expect((await shu(home, ["log", id, "first"])).stdout).toBe(
+      `logged ${id}\nnote (task last updated ${updated}): none\n` +
+        "If this entry outdates the note or the body: --note on shu log, or shu save with the id\n",
+    );
+    expect((await shu(home, ["log", id, "second", "--note=- Next: the fix"])).stdout).toBe(
+      `logged ${id}\nnote: - Next: the fix\n`,
+    );
+    expect((await shu(home, ["log", id, "third"])).stdout).toContain("): - Next: the fix\n");
+  });
+
+  test("--note can be given only once", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const { json } = await shuJson(home, ["log", id, "entry", "--note", "a", "--note", "b"]);
+    expect(json.error.code).toBe("invalid_input");
+    expect((await shuJson(home, ["show", id])).json.log).toEqual([]);
   });
 });
 

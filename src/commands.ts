@@ -273,17 +273,24 @@ export function find(ctx: Ctx, refInput: string): { task: TaskDetail } {
   return { task: detail(owners[0]) };
 }
 
+// The task comes back with the entry so that the writer sees the note the entry may have outdated
 export function log(
   ctx: Ctx,
   idInput: string,
   message: string,
   author: string = DEFAULT_AUTHOR,
-): { id: string; entry: LogEntry } {
+  noteInput?: string,
+): { id: string; entry: LogEntry; task: TaskSummary } {
   const id = resolveId(ctx.home, idInput);
   const entry = buildEntry(formatLocalIso(ctx.now()), author, message);
+  const note = noteInput === undefined ? undefined : parseNote(noteInput);
+  // A task.md that cannot be read fails before anything is written
+  const task = readTask(ctx.home, id);
   // One append-mode write per entry keeps concurrent appends from interleaving
   appendFileSync(logFile(ctx.home, id), formatEntry(entry));
-  return { id, entry };
+  if (note === undefined) return { id, entry, task: summary(task) };
+  // Written even when the note is unchanged: `updated` then says the note was checked against this entry
+  return { id, entry, task: summary(updateTask(ctx, id, { note }, [], [])) };
 }
 
 export function artifact(

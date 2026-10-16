@@ -5,7 +5,7 @@ import { parseArgs, type ParseArgsConfig } from "node:util";
 import pkg from "../package.json";
 import * as commands from "./commands";
 import { ShuError } from "./errors";
-import { formatKinds, formatList, formatShow, formatTask } from "./format";
+import { formatKinds, formatList, formatLogged, formatShow, formatTask } from "./format";
 
 // One entry per command: shu <command> --help prints that entry alone
 const USAGE = {
@@ -36,9 +36,13 @@ const USAGE = {
       A note that starts with "-" is written --note="- text"`,
   find: `  shu find --ref <ref>
       Look up the task that owns a ref`,
-  log: `  shu log <id> [message] [--author <name>]
-      Append one log entry (reads the message from standard input if omitted).
-      A message that starts with "-" must come after "--" or from standard input:
+  log: `  shu log <id> [message] [--author <name>] [--note <text>]
+      Append one log entry (reads the message from standard input if omitted), then
+      print the task's note, to check whether the entry has outdated it.
+      --note also sets the note, after the entry is written (an empty text clears it):
+        shu log <id> "Provider replied: a fix ships Friday" --note "Waiting for Friday's fix"
+      A message that starts with "-" must come after "--" or from standard input,
+      and a note that starts with "-" is written --note="- text":
         shu log <id> -- "- a bullet"`,
   artifact: `  shu artifact <id> <file> [--name <name>] [--force]
       Copy a file into the task (<file> of - reads standard input; needs --name)`,
@@ -49,8 +53,9 @@ const USAGE = {
 };
 
 const WHEN_TO_LOG = `When to log, for an agent working on a task: log what you learn when you learn it,
-before anything is settled. The next session starts from the body and the log, so
-fold what is settled into the body (shu save with id and body).
+before anything is settled. The next session starts from the note, the body, and the
+log, so keep the note on where the task stands now (--note) and fold what is settled
+into the body (shu save with id and body).
   - A lookup or a subagent returns: log the facts it found
   - The user voices a concern, a preference, or a decision: log it
   - You are about to wait for an answer: log the options you gave and the open question
@@ -73,9 +78,9 @@ kind     Free-form. Reuse one that "shu kinds" lists before adding a new one. Su
          review / pr-followup / bug-investigation / alert-investigation / fix-request / ticket
 status   todo (not started) / open (in progress) / waiting (blocked on someone else) /
          done / dropped
-note     One line, no control characters, that says why the task is in its status, such
-         as who it is waiting on. "shu list" shows it. It is cleared when the status
-         changes without a new note
+note     One line, no control characters, that says where the task stands: why it is in
+         its status, such as who it is waiting on, or the next step. "shu list" shows it.
+         It is cleared when the status changes without a new note
 <ref>    github:<owner>/<repo>#<number>, linear:<KEY>-<number>, slack:<permalink>,
          notion:<page ID>, url:<URL>
          (URLs and short forms such as owner/repo#482 or abc-123 are normalized, so every
@@ -109,7 +114,7 @@ const COMMAND_OPTIONS: Record<Command, Options> = {
   save: { "remove-ref": { type: "string", multiple: true } },
   status: { note: { type: "string", multiple: true } },
   find: { ref: { type: "string" } },
-  log: { author: { type: "string" } },
+  log: { author: { type: "string" }, note: { type: "string", multiple: true } },
   artifact: { name: { type: "string" }, force: { type: "boolean" } },
   path: {},
   kinds: {},
@@ -236,10 +241,12 @@ async function dispatch(argv: string[]): Promise<Output> {
       return { data, text: formatTask(data.task) };
     }
     case "log": {
-      expectPositionals(positionals, 1, 2, "log <id> [message] [--author <name>]");
+      expectPositionals(positionals, 1, 2, "log <id> [message] [--author <name>] [--note <text>]");
+      const notes = (values.note as string[] | undefined) ?? [];
+      if (notes.length > 1) throw usage("--note can be given only once");
       const message = positionals[1] ?? (await Bun.stdin.text());
-      const data = commands.log(ctx, positionals[0], message, values.author as string | undefined);
-      return { data, text: `logged ${data.id}` };
+      const data = commands.log(ctx, positionals[0], message, values.author as string | undefined, notes[0]);
+      return { data, text: formatLogged(data.task, notes.length > 0) };
     }
     case "artifact": {
       expectPositionals(positionals, 2, 2, "artifact <id> <file> [--name <name>] [--force]");

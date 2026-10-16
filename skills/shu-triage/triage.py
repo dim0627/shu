@@ -221,7 +221,17 @@ def describe_pr(pair, state, shipped, deploy_repos, via_title):
     return f"{label} {text}" + (" (matched by title: add it as a ref)" if via_title else "")
 
 
-def marks_for(task, prs, states, shipped, deploy_repos, has_own_log):
+def parse_time(text):
+    return datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def newer_than_task(task, log):
+    """Entries written after task.md was: `shu log` alone leaves task.md, and so the note and the body, as they were."""
+    updated = parse_time(task["updated"])
+    return [entry for entry in log if entry["author"] != AUTHOR and parse_time(entry["at"]) > updated]
+
+
+def marks_for(task, prs, states, shipped, deploy_repos, has_own_log, log_ahead):
     known = [states.get(pair) for pair in prs]
     unread = any(s is None for s in known)
     pulls = [(pair, s) for pair, s in zip(prs, known) if s and s["type"] == "PullRequest"]
@@ -243,6 +253,8 @@ def marks_for(task, prs, states, shipped, deploy_repos, has_own_log):
     # With an unread ref the task may well have a pull request
     if task["status"] in ("open", "waiting") and not pulls and not unread and (task["body"].strip() == "" or not has_own_log):
         marks.append("blank")
+    if log_ahead:
+        marks.append("log-ahead")
     return marks
 
 
@@ -313,7 +325,8 @@ def main():
         prs = task_prs[task["id"]]
         matched = set(title_matched.get(task["id"], []))
         has_own_log = any(entry["author"] != AUTHOR for entry in log)
-        marks = marks_for(task, prs, states, shipped, deploy_repos, has_own_log)
+        ahead = newer_than_task(task, log)
+        marks = marks_for(task, prs, states, shipped, deploy_repos, has_own_log, bool(ahead))
         for mark in marks:
             marked.setdefault(mark, []).append(task["id"])
         pr_texts = [describe_pr(pair, states.get(pair), shipped, deploy_repos, pair in matched) for pair in prs]
@@ -342,6 +355,8 @@ def main():
         block += [f"pr: {text}" for text in pr_texts]
         block += [f"not looked up: {ref}" for ref in other_refs]
         block += ["", task["body"].strip() or "(no body)", ""]
+        if ahead:
+            block.append(f"log-ahead: {len(ahead)} of {len(log)} log entries are newer than updated; read them all: shu show {task['id']}")
         if log:
             block.append(f"### Last {min(LOG_TAIL, len(log))} of {len(log)} log entries")
             for entry in log[-LOG_TAIL:]:

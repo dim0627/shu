@@ -34,6 +34,18 @@ export function formatTask(task: TaskDetail): string {
   return lines.join("\n");
 }
 
+// Without --note, the writer is shown the note as it stands and when the task was last written,
+// since nothing else would prompt them to notice that the entry made it stale
+export function formatLogged(task: TaskSummary, noteGiven: boolean): string {
+  const note = task.note === "" ? "none" : task.note;
+  if (noteGiven) return `logged ${task.id}\nnote: ${note}`;
+  return [
+    `logged ${task.id}`,
+    `note (task last updated ${task.updated}): ${note}`,
+    "If this entry outdates the note or the body: --note on shu log, or shu save with the id",
+  ].join("\n");
+}
+
 export function formatShow(task: TaskDetail, log: LogEntry[], logTotal: number, artifacts: string[]): string {
   const sections = [formatTask(task)];
   if (logTotal > 0) {
