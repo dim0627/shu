@@ -216,6 +216,26 @@ describe("several processes at once", () => {
     expect(new Set(entries.map((entry) => entry.author)).size).toBe(20);
   });
 
+  test("simultaneous shu log --note and shu status keep every entry and leave one of the notes", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "t", kind: "ticket" });
+    const notes = Array.from({ length: 12 }, (_, i) => `note ${i}`);
+
+    const results = await Promise.all([
+      ...notes.slice(0, 8).map((note, i) => shu(home, ["log", id, `entry ${i}`, "--note", note])),
+      ...notes.slice(8).map((note) => shu(home, ["status", "waiting", id, "--note", note])),
+    ]);
+
+    expect(results.map((r) => r.exitCode)).toEqual(Array(12).fill(0));
+    const entries = parseLog(readFileSync(join(home, "tasks", id, "log.md"), "utf8"));
+    expect(entries.map((entry) => entry.message).sort()).toEqual(Array.from({ length: 8 }, (_, i) => `entry ${i}`));
+    const task = parseTaskFile(readFileSync(taskFile(home, id), "utf8"), id);
+    expect(notes).toContain(task.note);
+    // updated is never older than an entry whose --note was the last to write
+    const last = entries.find((entry) => entry.message === `entry ${notes.indexOf(task.note)}`);
+    if (last) expect(Date.parse(task.updated)).toBeGreaterThanOrEqual(Date.parse(last.at));
+  });
+
   test("simultaneous artifacts with the same name: exactly one wins and its content is intact", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });

@@ -214,7 +214,7 @@ Creates or updates a task (upsert). Takes JSON from standard input.
   "status": "waiting",
   "note": "Waiting for the payment provider to reply",
   "refs": ["https://github.com/example-org/example-repo/pull/482"],
-  "body": "Current summary…"
+  "body": "A retry without an idempotency key charges twice."
 }
 ```
 
@@ -254,11 +254,13 @@ If the ref is found on more than one task (which can only happen when files were
 
 Appends one entry to the log. If `message` is omitted, it is read from standard input. `--author <name>` sets the author. Without `--note`, `task.md` (including `updated`) is not changed.
 
-The output carries the task as it stands after the command. The human-readable output prints its note (`none` when it has none) and its `updated`, and a line that points at `--note` and at `save`. An agent writes entries as a habit but has no other moment to notice that an entry has outdated the note or the body, so the note is put in front of it every time.
+The output carries the task as it stands after the command. Without `--note`, the human-readable output prints its note (`none` when it has none) and its `updated`, and a line that points at `--note` and at `save`; with `--note`, only the note it set. An agent writes entries as a habit but has no other moment to notice that an entry has outdated the note or the body, so the note is put in front of it every time.
 
-- `--note <text>` sets the note after the entry is appended, under the task lock, the same as `status` does (§6.9) but without changing the status. It can be given only once. An empty text clears it. A text that breaks the rules for a note (§3.1) is an error (`invalid_input`), and nothing is written. A text that starts with `-` is written `--note=<text>`
-- With `--note`, the task is written even when the note is unchanged, so `updated` moves past the entry: it records that the note was checked against it (§10.1)
-- The task is read before the entry is appended, so a `task.md` that cannot be read (`invalid_task`) fails before anything is written. If the note cannot be written after the append (`lock_timeout`), the entry stays and the command fails
+Every `log` reads the task before it appends, so a task whose `task.md` cannot be read (`invalid_task`) takes no entry, with or without `--note`, until it is fixed.
+
+- `--note <text>` also sets the note, the same as `status` does (§6.9) but without changing the status. It can be given only once. An empty text clears it. A text that breaks the rules for a note (§3.1) is an error (`invalid_input`), and nothing is written. A text that starts with `-` is written `--note=<text>`
+- With `--note`, the task lock (§7) is taken before the entry is appended, and the entry and `task.md` are written under it, so a `lock_timeout` leaves both as they were and the command can be run again
+- With `--note`, the entry's time is read once the lock is held, and `updated` is set to that same time. The task is written even when the note is unchanged, so `updated` records that the note was checked against this entry (§10.1). An entry that another `log` without `--note` appended in the same second, or that took its time before the lock and was appended after it, is not newer than `updated` either
 
 A message that starts with `-` would be read as an option. Put it after `--` (`shu log <id> -- "- a bullet"`) or pass it on standard input.
 
@@ -358,6 +360,9 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
   | `shipped` | `waiting`, all pull requests merged, at least one of them in a repository with a configured deploy tag, and all of those in a tag |
   | `blank` | `open` or `waiting`, no pull request, and an empty body or no log entry other than the skill's own (author `shu-triage`) |
   | `log-ahead` | `open`, `waiting`, or `todo`, and a log entry other than the skill's own that is newer than the task's `updated`. Such an entry was written after the note, the body, and the status were last touched (§3.1), so they may say less than the log. The skill has the agent read the whole log before it recommends the task, and bring the note and the body up to it |
+
+  `updated` stands in for the time the note was last checked, which SHU does not keep. So the mark misses some entries: any write of `task.md` moves `updated` past the log, a save that only adds a ref included, and timestamps are whole seconds, so an entry written in the same second as `updated` is not newer. The skill has the agent bring the note up to the log before it writes the task for another reason. A `status` with the status and the note the task already has writes nothing, so it does not clear the mark
+
 
 - A task without refs has no source to check, so it can carry `blank` and `log-ahead` and nothing else. The skill has the agent read every such task and ask the user whether to close one whose work reads as finished
 - A mark depends only on the task (its status, body, log, and `updated`) and what the lookups return, so a task the agent rightly left as it is carries the same mark on the next run. `log-ahead` is the exception the agent can clear without a change: `shu log --note` with the same note moves `updated` past the log. The skill has the agent say in its answer what it did with every marked task
