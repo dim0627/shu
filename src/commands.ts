@@ -284,13 +284,24 @@ export function log(
   const id = resolveId(ctx.home, idInput);
   const entry = buildEntry(formatLocalIso(ctx.now()), author, message);
   const note = noteInput === undefined ? undefined : parseNote(noteInput);
-  // A task.md that cannot be read fails before anything is written
-  const task = readTask(ctx.home, id);
   // One append-mode write per entry keeps concurrent appends from interleaving
-  appendFileSync(logFile(ctx.home, id), formatEntry(entry));
-  if (note === undefined) return { id, entry, task: summary(task) };
-  // Written even when the note is unchanged: `updated` then says the note was checked against this entry
-  return { id, entry, task: summary(updateTask(ctx, id, { note }, [], [])) };
+  const append = (entry: LogEntry) => appendFileSync(logFile(ctx.home, id), formatEntry(entry));
+  if (note === undefined) {
+    // A task.md that cannot be read fails before anything is written
+    const task = readTask(ctx.home, id);
+    append(entry);
+    return { id, entry, task: summary(task) };
+  }
+  // The lock comes first so that a lock_timeout leaves nothing written, and a retry no duplicate entry
+  return withLock(taskLock(ctx.home, id), () => {
+    const stamped = { ...entry, at: formatLocalIso(ctx.now()) };
+    const task = readTask(ctx.home, id);
+    append(stamped);
+    // Written even when the note is unchanged: `updated` equal to the entry's time says the note was checked against it
+    const next = applyUpdate(task, { note }, [], [], stamped.at);
+    writeFileAtomic(taskFile(ctx.home, id), serializeTask(next));
+    return { id, entry: stamped, task: summary(next) };
+  });
 }
 
 export function artifact(

@@ -8,7 +8,7 @@ description: Check every SHU task in hand against GitHub and the deploy tags, th
 A task in SHU is a hand-written copy of facts that live elsewhere: a pull request,
 a deploy, a reply. The copy goes stale within the hour. `triage.py`, beside this
 file, reads every open, waiting, and todo task, looks up what a machine can, and
-marks the tasks whose copy may disagree with its source.
+marks the tasks whose copy may disagree with its source or with its own log.
 
 ## Steps
 
@@ -30,8 +30,8 @@ marks the tasks whose copy may disagree with its source.
 
 Name every task by its ID and its title, or a few words of it, everywhere in
 the answer, also in a line that names several tasks at once
-(`aoi-kitsune (double charges) / akai-tsuru (login redirect) stay open`). An ID
-alone tells the user nothing.
+(`aoi-kitsune (double charges) / akai-tsuru (login redirect) stay open`). Never
+write an ID alone: it tells the user nothing.
 
 ## Marks
 
@@ -44,7 +44,7 @@ Issues, and pull requests closed without merging, do not count toward a mark.
 | `started` | todo, and a pull request is open | The work began: `open`, or `waiting` with a note |
 | `shipped` | waiting, every pull request is merged, and the ones in a repository with deploy tags are in a tag | The deploy wait is over. A next step tied to a time ("after tonight's peak") stays `waiting` with that time in the note; otherwise `open` |
 | `blank` | open or waiting, no pull request, and no body or no log | SHU holds too little to judge by: look up its other refs first |
-| `log-ahead` | the log has entries newer than the task's last update, other than this skill's own | The note, the body, and even the status may predate what the log says. Bring the note and the body up to the log; if both still hold, say so with `shu log <id> "<what you checked>" --note "<the note>"`, which updates the task |
+| `log-ahead` | the log has entries newer than the task's last update, other than this skill's own | The note, the body, and even the status may predate what the log says. Bring the note and the body up to the log; if both still hold, say so with `shu log <id> "<what you checked>" --note "<the note>"`, which updates the task. Do this before any other write to the task, such as adding a ref: any write clears the mark, whether or not the note caught up. `shu status` with the status and note the task already has writes nothing, so it does not |
 
 ## Rules
 

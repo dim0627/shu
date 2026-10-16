@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { formatEntry } from "../src/log";
 import { cleanupHomes, create, executable, SHU_STAND_IN, shu, spawnCollect, tempHome } from "./helpers";
 
 setDefaultTimeout(30_000);
@@ -165,7 +166,7 @@ const settle = (home: string, id: string) => shu(home, ["save"], JSON.stringify(
 
 // Entries with chosen timestamps, to place them before or after the task's updated without waiting on the clock
 function writeLog(home: string, id: string, entries: [at: string, author: string, message: string][]) {
-  const text = entries.map(([at, author, message]) => `## ${at} ${author}\n${message}\n\n`).join("");
+  const text = entries.map(([at, author, message]) => formatEntry({ at, author, message })).join("");
   writeFileSync(join(home, "tasks", id, "log.md"), text);
 }
 const PAST = "2020-01-01T00:00:00+09:00";
@@ -398,7 +399,7 @@ describe("shu-triage: log-ahead", () => {
     expect(marks(stdout, settled)).toBe("-");
     expect(stdout).not.toContain(done);
     expect(readFileSync(join(state, "last.md"), "utf8")).toContain(
-      `log-ahead: 1 of 2 log entries are newer than updated; read them all: shu show ${open}`,
+      `log-ahead: 1 of 2 log entries (not counting shu-triage's) are newer than updated; read them all: shu show ${open}`,
     );
   });
 
@@ -508,8 +509,8 @@ describe("shu-triage: the user's own pull requests", () => {
     });
 
     expect(stdout).toContain("Open pull requests of yours that belong to a closed task:");
-    expect(stdout).toContain(`${REPO}#9  ABC-7: one more fix  -> ${byTitle} (done)`);
-    expect(stdout).toContain(`${REPO}#10  Still open  -> ${byRef} (dropped)`);
+    expect(stdout).toContain(`${REPO}#9  ABC-7: one more fix  -> ${byTitle} Task (done)`);
+    expect(stdout).toContain(`${REPO}#10  Still open  -> ${byRef} Task (dropped)`);
   });
 });
 

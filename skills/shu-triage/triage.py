@@ -2,8 +2,8 @@
 """Check the tasks in hand against what GitHub and the deploy tags say now.
 
 Reads every open, waiting, and todo task from SHU, looks up the pull requests
-they point at, and prints one line per task with a mark where the task and the
-outside world disagree. The full text of each task goes to a file.
+they point at, and prints one line per task with a mark where the task disagrees
+with the outside world or with its own log. The full text of each task goes to a file.
 
 It writes nothing to SHU. See SKILL.md for how to act on the output.
 """
@@ -222,13 +222,14 @@ def describe_pr(pair, state, shipped, deploy_repos, via_title):
 
 
 def parse_time(text):
-    return datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    # Before Python 3.11, fromisoformat takes only 3 or 6 fraction digits; SHU accepts any, and compares whole seconds
+    return datetime.datetime.fromisoformat(re.sub(r"\.\d+", "", text.replace("Z", "+00:00")))
 
 
-def newer_than_task(task, log):
+def newer_than_task(task, entries):
     """Entries written after task.md was: `shu log` alone leaves task.md, and so the note and the body, as they were."""
     updated = parse_time(task["updated"])
-    return [entry for entry in log if entry["author"] != AUTHOR and parse_time(entry["at"]) > updated]
+    return [entry for entry in entries if parse_time(entry["at"]) > updated]
 
 
 def marks_for(task, prs, states, shipped, deploy_repos, has_own_log, log_ahead):
@@ -296,7 +297,7 @@ def main():
         elif is_open and closed:
             closed_with_open_pr.append((pr, closed))
         elif is_open:
-            created = datetime.datetime.fromisoformat(pr["created"].replace("Z", "+00:00"))
+            created = parse_time(pr["created"])
             if (now - created).days <= OPEN_PR_WINDOW_DAYS:
                 unmatched_open.append(pr)
             else:
@@ -324,9 +325,9 @@ def main():
         task, log = detail["task"], detail["log"]
         prs = task_prs[task["id"]]
         matched = set(title_matched.get(task["id"], []))
-        has_own_log = any(entry["author"] != AUTHOR for entry in log)
-        ahead = newer_than_task(task, log)
-        marks = marks_for(task, prs, states, shipped, deploy_repos, has_own_log, bool(ahead))
+        others = [entry for entry in log if entry["author"] != AUTHOR]
+        ahead = newer_than_task(task, others)
+        marks = marks_for(task, prs, states, shipped, deploy_repos, bool(others), bool(ahead))
         for mark in marks:
             marked.setdefault(mark, []).append(task["id"])
         pr_texts = [describe_pr(pair, states.get(pair), shipped, deploy_repos, pair in matched) for pair in prs]
@@ -356,7 +357,10 @@ def main():
         block += [f"not looked up: {ref}" for ref in other_refs]
         block += ["", task["body"].strip() or "(no body)", ""]
         if ahead:
-            block.append(f"log-ahead: {len(ahead)} of {len(log)} log entries are newer than updated; read them all: shu show {task['id']}")
+            block.append(
+                f"log-ahead: {len(ahead)} of {len(others)} log entries (not counting {AUTHOR}'s) are newer than updated;"
+                f" read them all: shu show {task['id']}"
+            )
         if log:
             block.append(f"### Last {min(LOG_TAIL, len(log))} of {len(log)} log entries")
             for entry in log[-LOG_TAIL:]:
@@ -401,7 +405,7 @@ def main():
     if closed_with_open_pr:
         print("\nOpen pull requests of yours that belong to a closed task:")
         for pr, task in closed_with_open_pr:
-            print(f"  {pr['repo']}#{pr['number']}  {pr['title']}  -> {task['id']} ({task['status']})")
+            print(f"  {pr['repo']}#{pr['number']}  {pr['title']}  -> {task['id']} {task['title']} ({task['status']})")
     if older_open:
         print(f"\n{older_open} older open pull requests of yours belong to no task (not listed).")
     if unmatched_merged:

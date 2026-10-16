@@ -44,7 +44,7 @@ shu show aoi-kitsune --log 3 --json               # the same, with only the last
 
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
        "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
-echo '{"id": "aoi-kitsune", "body": "Current summary."}' | shu save --json
+echo '{"id": "aoi-kitsune", "body": "A retry without an idempotency key charges twice."}' | shu save --json
 shu status open aoi-kitsune --json                # when you start a todo task
 shu status waiting aoi-kitsune --note "Waiting for the provider to reply" --json
 shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (dropped if abandoned)

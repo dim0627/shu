@@ -100,6 +100,10 @@ describe("--json output shape (the contract)", () => {
     expect(Object.keys(json)).toEqual(["id", "entry", "task"]);
     expect(json.entry).toEqual({ at: expect.any(String), author: "unknown", message: "looked into it" });
     expect(Object.keys(json.task)).toEqual(TASK_KEYS);
+    expect(json.id).toBe(id);
+    expect(json.task).toMatchObject({ id, note: "" });
+    const noted = (await shuJson(home, ["log", id, "found it", "--note", "Next: the fix"])).json;
+    expect(noted.task).toMatchObject({ id, note: "Next: the fix", updated: noted.entry.at });
   });
 
   test("artifact", async () => {
