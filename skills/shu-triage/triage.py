@@ -2,7 +2,7 @@
 """Check the tasks in hand against what GitHub and the deploy tags say now.
 
 Reads the open, waiting, and todo tasks from SHU (inside a clone of a GitHub
-repository, only those with a ref in it; --all for every one), looks up the pull requests
+repository, only those with a pull request or an issue in it; --all for every one), looks up the pull requests
 they point at, and prints one line per task with a mark where the task disagrees
 with the outside world or with its own log. The full text of each task goes to a file.
 
@@ -27,7 +27,8 @@ INSTALL = "curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts
 # The same shape src/ref.ts accepts for a linear ref. \b would not do: to Python a non-ASCII letter is a word character
 KEY = re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]*)-([0-9]+)(?![A-Za-z0-9])")
 GITHUB_REF = re.compile(r"^github:([^/]+)/([^#]+)#(\d+)$")
-GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
+# Also SSH over port 443 and a `github.com-<name>` host alias; an alias without github.com in it is not recognized
+GITHUB_REMOTE = re.compile(r"(?:^|[@/])(?:ssh\.)?github\.com(?:-[\w.-]+)?(?::\d+)?[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
 
 
 def run(args, cwd=None):
@@ -66,11 +67,17 @@ def load_config():
         sys.exit(f"shu-triage: cannot read the config at {path}: {e}")
 
 
-def current_repo():
-    """The GitHub repository of the clone the script runs in, or None outside one."""
-    code, out, _ = run(["git", "remote", "get-url", "origin"])
-    m = GITHUB_REMOTE.search(out.strip()) if code == 0 else None
-    return f"{m[1]}/{m[2]}".lower() if m else None
+def current_repos():
+    """The GitHub repositories of the clone the script runs in: origin, and upstream for a fork. Empty outside a clone."""
+    repos = []
+    for remote in ("origin", "upstream"):
+        code, out, err = run(["git", "remote", "get-url", remote])
+        if code == 127:
+            return [], [f"git is missing, so this run covers every task instead of the clone's repository: {err.strip()}"]
+        m = GITHUB_REMOTE.search(out.strip()) if code == 0 else None
+        if m:
+            repos.append(f"{m[1]}/{m[2]}".lower())
+    return repos, []
 
 
 def github_refs(task):
@@ -272,12 +279,12 @@ def main():
     args = sys.argv[1:]
     if args not in ([], ["--all"]):
         sys.exit("usage: triage.py [--all]")
-    repo = None if args else current_repo()
+    repos, problems = ([], []) if args else current_repos()
     now = datetime.datetime.now().astimezone()
     config = load_config()
-    deploy_repos = {repo.lower() for repo in (config.get("deployTags") or {})}
+    deploy_repos = {name.lower() for name in (config.get("deployTags") or {})}
 
-    active = [shu_json("show", t["id"]) for t in shu_json("list", *sum((["--status", s] for s in ACTIVE), []))["tasks"]]
+    listed = shu_json("list", *sum((["--status", s] for s in ACTIVE), []))["tasks"]
     everything = shu_json("list", "--all")["tasks"]
 
     ref_owner = {}
@@ -288,19 +295,20 @@ def main():
         for key in linear_keys(task):
             key_owner[key] = task
 
-    own, problems = search_own_prs(now.date())
-    if repo:
-        own = {pair: pr for pair, pr in own.items() if pair[0] == repo}
+    own, more = search_own_prs(now.date())
+    problems += more
 
-    # A pull request that no task refs joins a task when its title carries that task's ticket key
+    # A pull request that no task refs joins a task when its title carries that task's ticket key.
+    # Matching runs over every repository: a task in scope keeps its pull requests elsewhere, or its marks would change with the directory
     title_matched = {}  # task id -> [pair]
     closed_with_open_pr = []
     unmatched_open, older_open, unmatched_merged = [], 0, 0
     for pair, pr in own.items():
         is_open = pr["found_as"] == "open"
+        listed_here = not repos or pair[0] in repos
         owner = ref_owner.get(pair)
         if owner:
-            if is_open and owner["status"] not in ACTIVE:
+            if is_open and owner["status"] not in ACTIVE and listed_here:
                 closed_with_open_pr.append((pr, owner))
             continue
         owners = [key_owner[k] for k in title_keys(pr["title"]) if k in key_owner]
@@ -309,6 +317,8 @@ def main():
         closed = next((t for t in owners if t["status"] not in ACTIVE), None)
         if target:
             title_matched.setdefault(target["id"], []).append(pair)
+        elif not listed_here:
+            continue
         elif is_open and closed:
             closed_with_open_pr.append((pr, closed))
         elif is_open:
@@ -320,16 +330,11 @@ def main():
         elif not owners:
             unmatched_merged += 1
 
-    task_prs = {}
-    for detail in active:
-        task = detail["task"]
-        task_prs[task["id"]] = github_refs(task) + title_matched.get(task["id"], [])
-    left_out = 0
-    if repo:
-        in_repo = [d for d in active if any(pair[0] == repo for pair in task_prs[d["task"]["id"]])]
-        left_out = len(active) - len(in_repo)
-        active = in_repo
-    wanted = {pair for d in active for pair in task_prs[d["task"]["id"]]}
+    task_prs = {task["id"]: github_refs(task) + title_matched.get(task["id"], []) for task in listed}
+    scoped = [t for t in listed if not repos or any(pair[0] in repos for pair in task_prs[t["id"]])]
+    left_out = len(listed) - len(scoped)
+    active = [shu_json("show", t["id"]) for t in scoped]
+    wanted = {pair for t in scoped for pair in task_prs[t["id"]]}
 
     states, more = fetch_states(wanted)
     problems += more
@@ -399,7 +404,7 @@ def main():
     with open(os.path.join(out_dir, "runs.jsonl"), "a", encoding="utf-8") as f:
         record = {
             "at": now.isoformat(timespec="seconds"),
-            "repository": repo,
+            "repositories": repos,
             "leftOut": left_out,
             "counts": counts,
             "marks": marked,
@@ -418,8 +423,11 @@ def main():
     for task_id in no_backup:
         print(f"WARNING: no backup of {task_id}: its task.md could not be copied")
     print(f"now: {now.strftime('%Y-%m-%d %H:%M %Z')}")
-    if repo:
-        print(f"scope: tasks with a ref in {repo}; {left_out} other tasks in hand left out (--all for every task)")
+    if repos:
+        print(
+            f"scope: tasks with a pull request or an issue in {', '.join(repos)}, by a ref or a title;"
+            f" {left_out} other tasks in hand left out (--all for every task)"
+        )
     else:
         print("scope: every task in hand")
     print()
