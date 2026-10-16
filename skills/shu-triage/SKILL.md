@@ -14,8 +14,8 @@ marks the tasks whose copy may disagree with its source or with its own log.
 
 1. Run `python3 <this folder>/triage.py` every time the question comes up. An
    earlier run in the same session is already stale.
-   - Inside a clone of a GitHub repository it covers only the tasks with a ref
-     in that repository, and its `scope:` line says how many it left out. Add
+   - Inside a clone of a GitHub repository it covers only the tasks with a pull
+     request or an issue there, and its `scope:` line says how many it left out. Add
      `--all` when the user asks about their work as a whole; otherwise mention
      the count in your answer.
    - It stops because `shu` is missing or rejects a command: install the latest,

@@ -36,8 +36,8 @@ interface World {
   // Which programs exist on PATH. Leaving one out is how a machine without it looks
   programs?: ("shu" | "gh" | "git")[];
   deployConfig?: false | { pattern?: string; cloneExists?: boolean };
-  // The URL of origin in the directory the script runs in. Left out, it runs outside any clone
-  origin?: string;
+  // The remotes of the clone the script runs in, by name. Left out, it runs outside any clone
+  remotes?: Record<string, string>;
   args?: string[];
 }
 
@@ -88,9 +88,11 @@ import json, os, sys
 world = json.load(open(os.environ["FAKE_WORLD"]))
 args = sys.argv[1:]
 if args[:2] == ["remote", "get-url"]:
-    if world["origin"] is None:
+    if world["remotes"] is None:
         sys.stderr.write("fatal: not a git repository\\n"); sys.exit(128)
-    print(world["origin"]); sys.exit(0)
+    if args[2] not in world["remotes"]:
+        sys.stderr.write(f"error: No such remote '{args[2]}'\\n"); sys.exit(2)
+    print(world["remotes"][args[2]]); sys.exit(0)
 with open(os.environ["FAKE_WORLD"] + ".git-calls", "a") as f:
     f.write(" ".join(args) + "\\n")
 if args[0] == "fetch":
@@ -127,7 +129,7 @@ async function triage(home: string, world: World = {}) {
       failSearch: world.failSearch ?? false,
       failFetch: world.failFetch ?? false,
       failTagContains: world.failTagContains ?? false,
-      origin: world.origin ?? null,
+      remotes: world.remotes ?? null,
     }),
   );
   const config = join(dir, "config.json");
@@ -523,8 +525,14 @@ describe("shu-triage: the user's own pull requests", () => {
 });
 
 describe("shu-triage: inside a clone, only its repository", () => {
+  const SCOPE = `scope: tasks with a pull request or an issue in ${REPO}, by a ref or a title;`;
   const world = (extra: World = {}): World => ({
-    prs: { [`${REPO}#1`]: { state: "OPEN" }, [`${REPO}#5`]: { state: "OPEN" }, [`${OTHER}#2`]: { state: "OPEN" }, [`${OTHER}#6`]: { state: "OPEN" } },
+    prs: {
+      [`${REPO}#1`]: { state: "OPEN" },
+      [`${REPO}#5`]: { state: "OPEN" },
+      [`${OTHER}#2`]: { state: "OPEN" },
+      [`${OTHER}#6`]: { state: "OPEN" },
+    },
     open: [
       { number: 3, title: "Orphan here" },
       { number: 4, title: "Orphan elsewhere", repo: OTHER },
@@ -532,25 +540,75 @@ describe("shu-triage: inside a clone, only its repository", () => {
     ...extra,
   });
 
-  test("tasks without a ref in the repository are left out and counted, and so are pull requests elsewhere", async () => {
+  test("tasks without a pull request or issue in the repository are left out and counted, and so are pull requests elsewhere", async () => {
     const home = tempHome();
     const here = await create(home, ticket({ refs: [`${REPO}#1`] }));
     const both = await create(home, ticket({ refs: [`${OTHER}#6`, `${REPO}#5`] }));
+    const byTitle = await create(home, ticket({ refs: ["ABC-7"] }));
     const elsewhere = await create(home, ticket({ refs: [`${OTHER}#2`] }));
     const noRefs = await create(home, ticket({}));
 
     // GitHub keeps the repository's own case in a URL; SHU stores the ref in lowercase
-    const { stdout, state } = await triage(home, world({ origin: "git@github.com:Example-Org/Example-Repo.git" }));
+    const { stdout, state } = await triage(home, {
+      ...world({ remotes: { origin: "git@github.com:Example-Org/Example-Repo.git" } }),
+      open: [
+        { number: 3, title: "Orphan here" },
+        { number: 4, title: "Orphan elsewhere", repo: OTHER },
+        { number: 7, title: "ABC-7: started" },
+      ],
+      prs: { ...world().prs, [`${REPO}#7`]: { state: "OPEN" } },
+    });
 
-    expect(stdout).toContain(`scope: tasks with a ref in ${REPO}; 2 other tasks in hand left out (--all for every task)\n`);
-    expect(marks(stdout, here)).toBe("-");
-    expect(marks(stdout, both)).toBe("-");
+    expect(stdout).toContain(`${SCOPE} 2 other tasks in hand left out (--all for every task)\n`);
+    for (const id of [here, both]) expect(marks(stdout, id)).toBe("-");
+    expect(marks(stdout, byTitle)).toBe("-");
     expect(stdout).not.toContain(elsewhere);
     expect(stdout).not.toContain(noRefs);
     expect(stdout).toContain(`${REPO}#3  Orphan here`);
     expect(stdout).not.toContain("Orphan elsewhere");
     const [run] = readFileSync(join(state, "runs.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(run).toMatchObject({ repository: REPO, leftOut: 2, counts: { open: 2 } });
+    expect(run).toMatchObject({ repositories: [REPO], leftOut: 2, counts: { open: 3 } });
+    const [backup] = readdirSync(join(state, "backup"));
+    expect(readdirSync(join(state, "backup", backup)).sort()).toEqual([here, both, byTitle].map((id) => `${id}.md`).sort());
+  });
+
+  test("a task in scope keeps the pull requests its title ties it to elsewhere, so its marks do not depend on the directory", async () => {
+    const home = tempHome();
+    const id = await create(home, ticket({ refs: [`${REPO}#1`, "ABC-7"] }));
+    const scoped: World = {
+      prs: { [`${REPO}#1`]: { state: "MERGED" }, [`${OTHER}#9`]: { state: "OPEN" } },
+      open: [{ number: 9, title: "ABC-7 follow-up", repo: OTHER }],
+      remotes: { origin: `https://github.com/${REPO}.git` },
+    };
+
+    for (const extra of [{}, { args: ["--all"] }]) {
+      const { stdout } = await triage(home, { ...scoped, ...extra });
+      expect(marks(stdout, id)).toBe("-");
+      expect(stdout).toContain(`${OTHER}#9 open (matched by title: add it as a ref)`);
+    }
+  });
+
+  test("in a fork, upstream counts as the repository too", async () => {
+    const home = tempHome();
+    const id = await create(home, ticket({ refs: [`${REPO}#1`] }));
+
+    const { stdout } = await triage(
+      home,
+      world({ remotes: { origin: "git@github.com:someone/example-repo.git", upstream: `https://github.com/${REPO}` } }),
+    );
+
+    expect(stdout).toContain(`scope: tasks with a pull request or an issue in someone/example-repo, ${REPO}, by a ref or a title;`);
+    expect(marks(stdout, id)).toBe("-");
+  });
+
+  test("SSH over port 443 and a github.com host alias are GitHub too", async () => {
+    const home = tempHome();
+    await create(home, ticket({ refs: [`${REPO}#1`] }));
+
+    for (const origin of [`ssh://git@ssh.github.com:443/${REPO}.git`, `git@github.com-work:${REPO}.git`]) {
+      const { stdout } = await triage(home, world({ remotes: { origin } }));
+      expect(stdout).toContain(SCOPE);
+    }
   });
 
   test("--all, an origin outside GitHub, and no clone at all each cover every task", async () => {
@@ -559,8 +617,9 @@ describe("shu-triage: inside a clone, only its repository", () => {
     const noRefs = await create(home, ticket({}));
 
     for (const extra of [
-      { origin: `https://github.com/${REPO}`, args: ["--all"] },
-      { origin: "https://git.example.com/example-org/example-repo.git" },
+      { remotes: { origin: `https://github.com/${REPO}` }, args: ["--all"] },
+      { remotes: { origin: "https://git.example.com/example-org/example-repo.git" } },
+      { remotes: { origin: "https://git.notgithub.com/example-org/example-repo.git" } },
       {},
     ]) {
       const { stdout } = await triage(home, world(extra));
@@ -569,6 +628,27 @@ describe("shu-triage: inside a clone, only its repository", () => {
       expect(stdout).toContain(noRefs);
       expect(stdout).toContain("Orphan elsewhere");
     }
+  });
+
+  test("with no task in scope, the output says so", async () => {
+    const home = tempHome();
+    await create(home, ticket({ refs: [`${OTHER}#2`] }));
+
+    const { stdout } = await triage(home, world({ remotes: { origin: `https://github.com/${REPO}` } }));
+
+    expect(stdout).toContain(`${SCOPE} 1 other tasks in hand left out (--all for every task)\n\nno tasks in scope\n`);
+  });
+
+  test("without git, the run covers every task and reports the failed lookup", async () => {
+    const home = tempHome();
+    const elsewhere = await create(home, ticket({ refs: [`${OTHER}#2`] }));
+
+    const { stdout } = await triage(home, { ...world({ remotes: { origin: `https://github.com/${REPO}` } }), programs: ["shu", "gh"] });
+
+    expect(stdout.startsWith("LOOKUPS FAILED")).toBe(true);
+    expect(stdout).toContain("git is missing, so this run covers every task instead of the clone's repository");
+    expect(stdout).toContain("scope: every task in hand\n");
+    expect(stdout).toContain(elsewhere);
   });
 
   test("an unknown argument stops the script with its usage", async () => {
