@@ -36,6 +36,9 @@ interface World {
   // Which programs exist on PATH. Leaving one out is how a machine without it looks
   programs?: ("shu" | "gh" | "git")[];
   deployConfig?: false | { pattern?: string; cloneExists?: boolean };
+  // The URL of origin in the directory the script runs in. Left out, it runs outside any clone
+  origin?: string;
+  args?: string[];
 }
 
 const searchRow = (pr: OwnPr) => ({
@@ -84,6 +87,10 @@ const FAKE_GIT = `#!${PYTHON}
 import json, os, sys
 world = json.load(open(os.environ["FAKE_WORLD"]))
 args = sys.argv[1:]
+if args[:2] == ["remote", "get-url"]:
+    if world["origin"] is None:
+        sys.stderr.write("fatal: not a git repository\\n"); sys.exit(128)
+    print(world["origin"]); sys.exit(0)
 with open(os.environ["FAKE_WORLD"] + ".git-calls", "a") as f:
     f.write(" ".join(args) + "\\n")
 if args[0] == "fetch":
@@ -120,6 +127,7 @@ async function triage(home: string, world: World = {}) {
       failSearch: world.failSearch ?? false,
       failFetch: world.failFetch ?? false,
       failTagContains: world.failTagContains ?? false,
+      origin: world.origin ?? null,
     }),
   );
   const config = join(dir, "config.json");
@@ -130,7 +138,7 @@ async function triage(home: string, world: World = {}) {
   const state = join(dir, "state");
 
   // PATH holds the stand-ins only, so a real gh, git, or shu can never answer
-  const result = await spawnCollect([PYTHON, SCRIPT], {
+  const result = await spawnCollect([PYTHON, SCRIPT, ...(world.args ?? [])], {
     PATH: bin,
     SHU_HOME: home,
     SHU_TRIAGE_CONFIG: config,
@@ -511,6 +519,63 @@ describe("shu-triage: the user's own pull requests", () => {
     expect(stdout).toContain("Open pull requests of yours that belong to a closed task:");
     expect(stdout).toContain(`${REPO}#9  ABC-7: one more fix  -> ${byTitle} Task (done)`);
     expect(stdout).toContain(`${REPO}#10  Still open  -> ${byRef} Task (dropped)`);
+  });
+});
+
+describe("shu-triage: inside a clone, only its repository", () => {
+  const world = (extra: World = {}): World => ({
+    prs: { [`${REPO}#1`]: { state: "OPEN" }, [`${REPO}#5`]: { state: "OPEN" }, [`${OTHER}#2`]: { state: "OPEN" }, [`${OTHER}#6`]: { state: "OPEN" } },
+    open: [
+      { number: 3, title: "Orphan here" },
+      { number: 4, title: "Orphan elsewhere", repo: OTHER },
+    ],
+    ...extra,
+  });
+
+  test("tasks without a ref in the repository are left out and counted, and so are pull requests elsewhere", async () => {
+    const home = tempHome();
+    const here = await create(home, ticket({ refs: [`${REPO}#1`] }));
+    const both = await create(home, ticket({ refs: [`${OTHER}#6`, `${REPO}#5`] }));
+    const elsewhere = await create(home, ticket({ refs: [`${OTHER}#2`] }));
+    const noRefs = await create(home, ticket({}));
+
+    // GitHub keeps the repository's own case in a URL; SHU stores the ref in lowercase
+    const { stdout, state } = await triage(home, world({ origin: "git@github.com:Example-Org/Example-Repo.git" }));
+
+    expect(stdout).toContain(`scope: tasks with a ref in ${REPO}; 2 other tasks in hand left out (--all for every task)\n`);
+    expect(marks(stdout, here)).toBe("-");
+    expect(marks(stdout, both)).toBe("-");
+    expect(stdout).not.toContain(elsewhere);
+    expect(stdout).not.toContain(noRefs);
+    expect(stdout).toContain(`${REPO}#3  Orphan here`);
+    expect(stdout).not.toContain("Orphan elsewhere");
+    const [run] = readFileSync(join(state, "runs.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(run).toMatchObject({ repository: REPO, leftOut: 2, counts: { open: 2 } });
+  });
+
+  test("--all, an origin outside GitHub, and no clone at all each cover every task", async () => {
+    const home = tempHome();
+    const elsewhere = await create(home, ticket({ refs: [`${OTHER}#2`] }));
+    const noRefs = await create(home, ticket({}));
+
+    for (const extra of [
+      { origin: `https://github.com/${REPO}`, args: ["--all"] },
+      { origin: "https://git.example.com/example-org/example-repo.git" },
+      {},
+    ]) {
+      const { stdout } = await triage(home, world(extra));
+      expect(stdout).toContain("scope: every task in hand\n");
+      expect(stdout).toContain(elsewhere);
+      expect(stdout).toContain(noRefs);
+      expect(stdout).toContain("Orphan elsewhere");
+    }
+  });
+
+  test("an unknown argument stops the script with its usage", async () => {
+    const { stderr, exitCode } = await triage(tempHome(), { args: ["--repo"] });
+
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("usage: triage.py [--all]");
   });
 });
 
