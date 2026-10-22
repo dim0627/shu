@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work worth picking up again later, whether it came from a PR, ticket, Slack thread, or document such as a Notion page, or only from a conversation that reached a conclusion or a next step, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work worth picking up again later, whether it came from a PR, ticket, Slack thread, or document such as a Notion page, or only from a conversation that reached a conclusion or a next step, when you are about to read a PR, ticket, or document, even one you only read for reference, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
 ---
 
 # shu — the task store
@@ -17,6 +17,14 @@ If it is not installed, add it with `npx skills add dim0627/shu --skill shu-tria
 answer from `shu list` and say that the list is unchecked.
 
 If `shu` is missing, or rejects a command, option, or field shown here, install the latest: `curl -fsSL https://raw.githubusercontent.com/dim0627/shu/main/scripts/install.sh | sh`
+
+## When to look a task up
+
+Before you read a PR, a ticket, or a document, run `shu find --ref` with its
+URL, even when it is someone else's or you only read it for reference in the
+middle of other work. If a task owns it, read the task with `shu show` and its
+artifacts before the source: an earlier session may already have stored a
+brief or a review of it.
 
 ## When to make a task
 
