@@ -1,6 +1,6 @@
 ---
 name: shu
-description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work worth picking up again later, whether it came from a PR, ticket, Slack thread, or document such as a Notion page, or only from a conversation that reached a conclusion or a next step, when you are about to read a PR, ticket, or document, even one you only read for reference, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer.
+description: Read and write task information through the shu CLI, a local task store shared across sessions. Use when the user asks what to work on next or how a task stands, when you start or resume work worth picking up again later, whether it came from a PR, ticket, Slack thread, or document such as a Notion page, or only from a conversation that reached a conclusion or a next step, and during that work whenever a lookup or a subagent returns, the user voices a concern, a preference, or a decision, you reach a conclusion of your own, you write a file worth keeping, or you are about to wait for an answer. Also use it before you read a PR, ticket, Slack thread, or document by its URL, even one you only read for reference.
 ---
 
 # shu — the task store
@@ -20,11 +20,13 @@ If `shu` is missing, or rejects a command, option, or field shown here, install 
 
 ## When to look a task up
 
-Before you read a PR, a ticket, or a document, run `shu find --ref` with its
-URL, even when it is someone else's or you only read it for reference in the
-middle of other work. If a task owns it, read the task with `shu show` and its
-artifacts before the source: an earlier session may already have stored a
-brief or a review of it.
+Before you read a PR, a ticket, a Slack thread, or a document by its URL, run
+`shu find --ref` with that URL, even when it is someone else's or you only read
+it for reference in the middle of other work. If a task owns it, read the task
+with `shu show`, and the artifacts it lists from `$(shu path <id>)/artifacts`,
+before the source: an earlier session may already have stored a brief or a
+review of it. If none does, read the source: a read for reference is not a
+task.
 
 ## When to make a task
 
@@ -113,6 +115,7 @@ tell you again, such as a PR's review state or CI result: fetch that fresh.
   and applied nothing else, and `skipped` names the fields it left alone. Read
   the task with `show`, then update it by `id`.
 - `find` exits non-zero with `not_found` when no task owns the ref: that is the
-  answer "no task yet", so create one with `save`.
+  answer "no task yet". Create one with `save` only for work that is a task
+  (see "When to make a task").
 - `ref_conflict` means the refs belong to different tasks. SHU never merges
   tasks: show the user the candidates and let them choose.
