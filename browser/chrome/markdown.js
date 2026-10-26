@@ -1,11 +1,15 @@
-// Log entries and bodies are Markdown kept to what an entry needs: bullets, `code`, code blocks, and links.
-// Anything else stays as written: entries hold text such as <!channel>, *, and snake_case that a full renderer
-// would turn into HTML or emphasis. The result is a tree of strings and {tag, href, children}, which the popup
+// Log entries and bodies are Markdown kept to what an entry needs: bullets, `code`, code blocks, links, **bold**,
+// and headings, shown as a bold line. Anything else stays as written: entries hold text such as <!channel>, *, and
+// snake_case that a full renderer would turn into HTML or emphasis. The result is a tree of strings and {tag, href, children}, which the popup
 // builds with text nodes only.
 
-const FENCE = /^ {0,3}(`{3,})/;
+// As in CommonMark, an info string holds no backtick, so ```npm ci``` at the start of a line is inline code
+const FENCE = /^ {0,3}(`{3,})[^`]*$/;
+const HEADING = /^ {0,3}#{1,6} +(.+?)(?: +#+)? *$/;
 const BULLET = /^( *)[-*] (.*)$/;
-const LINK = /^\[([^[\]\n]+)\]\((https?:\/\/[^\s()<>]+)\)/i;
+const LINK = /^\[([^[\]\n]+)\]\((https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))+)\)/i;
+// A "**" next to a "/" is a glob such as test/**/*.test.js, not bold
+const STRONG = /^\*\*([^\s*/](?:[^\n]*?[^\s*/])?)\*\*(?![\w*])/;
 const URL_START = /^https?:\/\//i;
 const URL_CHARS = /^[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%]+/;
 
@@ -15,6 +19,8 @@ export function markdown(text) {
   const blocks = [];
   let paragraph = [];
   let items = null;
+  let base = 0;
+  let gap = false;
   let fence = null;
 
   const endParagraph = () => {
@@ -44,25 +50,41 @@ export function markdown(text) {
       continue;
     }
     if (line.trim() === "") {
+      // A blank line ends a paragraph but not a list: the next bullet or indented line carries it on
       endParagraph();
-      endList();
+      gap = items !== null;
       continue;
     }
-    const bullet = BULLET.exec(line);
-    const indented = /^ {2}/.test(line);
-    if (bullet && items && indented) {
-      items.at(-1).sub.push({ lines: [bullet[2]], sub: [] });
+    const heading = HEADING.exec(line);
+    if (heading) {
+      endParagraph();
+      endList();
+      blocks.push(node("p", [node("strong", inline(heading[1]))]));
+      continue;
+    }
+    // Only leading tabs are expanded, so a tab inside the text is kept
+    const spaced = line.replace(/^[ \t]+/, (ws) => ws.replaceAll("\t", "    "));
+    const indent = /^ */.exec(spaced)[0].length;
+    const bullet = BULLET.exec(spaced);
+    // Nesting is relative to the list's first bullet, so a list indented as a whole stays flat
+    if (bullet && items && indent >= base + 2) {
+      items.at(-1).sub.push({ offset: indent + 2, lines: [bullet[2]] });
     } else if (bullet) {
       endParagraph();
+      if (!items) base = indent;
       items ??= [];
-      items.push({ lines: [bullet[2]], sub: [] });
-    } else if (items && indented) {
+      items.push({ offset: indent + 2, lines: [bullet[2]], sub: [] });
+    } else if (items && indent >= base + 2) {
       const item = items.at(-1);
-      (item.sub.at(-1) ?? item).lines.push(line.trim());
+      const sub = item.sub.at(-1);
+      const target = sub && indent >= sub.offset ? sub : item;
+      if (gap) target.lines.push("");
+      target.lines.push(spaced.slice(target.offset));
     } else {
       endList();
       paragraph.push(line);
     }
+    gap = false;
   }
   // An unclosed fence runs to the end, as in CommonMark
   if (fence) blocks.push(node("pre", [node("code", [fence.lines.join("\n")])]));
@@ -76,7 +98,7 @@ function list(items) {
     "ul",
     items.map((item) => {
       const children = inline(item.lines.join("\n"));
-      if (item.sub.length) children.push(list(item.sub));
+      if (item.sub?.length) children.push(list(item.sub));
       return node("li", children);
     }),
   );
@@ -102,6 +124,12 @@ function inline(text, links = true) {
         push(run);
         at += run.length;
       }
+      continue;
+    }
+    const strong = rest.startsWith("**") && !/[\w*/]/.test(text[at - 1] ?? "") ? STRONG.exec(rest) : null;
+    if (strong) {
+      push(node("strong", inline(strong[1], links)));
+      at += strong[0].length;
       continue;
     }
     const link = links && rest[0] === "[" ? LINK.exec(rest) : null;
