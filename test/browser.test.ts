@@ -350,6 +350,13 @@ describe("markdown", () => {
     ]);
   });
 
+  test("closes a code block only with a bare run of backticks at least as long as the one that opened it", () => {
+    expect(markdown("````md\n```ts\nx\n```\n````\nAfter")).toEqual([
+      { tag: "pre", children: [code("```ts\nx\n```")] },
+      p("After"),
+    ]);
+  });
+
   test("renders links and bare URLs, leaving the punctuation after a URL outside it", () => {
     expect(markdown("See [the docs](https://docs.example.com/a) and https://example.com/b_(c)).")).toEqual([
       p("See ", a("https://docs.example.com/a", "the docs"), " and ", a("https://example.com/b_(c)"), ")."),

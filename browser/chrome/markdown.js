@@ -3,7 +3,7 @@
 // would turn into HTML or emphasis. The result is a tree of strings and {tag, href, children}, which the popup
 // builds with text nodes only.
 
-const FENCE = /^ {0,3}```/;
+const FENCE = /^ {0,3}(`{3,})/;
 const BULLET = /^( *)[-*] (.*)$/;
 const LINK = /^\[([^[\]\n]+)\]\((https?:\/\/[^\s()<>]+)\)/i;
 const URL_START = /^https?:\/\//i;
@@ -28,16 +28,19 @@ export function markdown(text) {
 
   for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
     if (fence) {
-      if (FENCE.test(line)) {
-        blocks.push(node("pre", [node("code", [fence.join("\n")])]));
+      // As in CommonMark, only a bare run at least as long as the opener closes it, so ```ts inside stays code
+      const close = /^ {0,3}(`{3,})\s*$/.exec(line);
+      if (close && close[1].length >= fence.length) {
+        blocks.push(node("pre", [node("code", [fence.lines.join("\n")])]));
         fence = null;
-      } else fence.push(line);
+      } else fence.lines.push(line);
       continue;
     }
-    if (FENCE.test(line)) {
+    const open = FENCE.exec(line);
+    if (open) {
       endParagraph();
       endList();
-      fence = [];
+      fence = { length: open[1].length, lines: [] };
       continue;
     }
     if (line.trim() === "") {
@@ -62,7 +65,7 @@ export function markdown(text) {
     }
   }
   // An unclosed fence runs to the end, as in CommonMark
-  if (fence) blocks.push(node("pre", [node("code", [fence.join("\n")])]));
+  if (fence) blocks.push(node("pre", [node("code", [fence.lines.join("\n")])]));
   endParagraph();
   endList();
   return blocks;
