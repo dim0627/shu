@@ -9,7 +9,7 @@ const HEADING = /^ {0,3}#{1,6} +(.+?)(?: +#+)? *$/;
 const BULLET = /^( *)[-*] (.*)$/;
 const LINK = /^\[([^[\]\n]+)\]\((https?:\/\/(?:[^\s()<>]|\([^\s()<>]*\))+)\)/i;
 // A "**" next to a "/" is a glob such as test/**/*.test.js, not bold
-const STRONG = /^\*\*([^\s*/](?:[^\n]*?[^\s*/])?)\*\*(?![\w*])/;
+const STRONG = /^\*\*([^\s*/](?:(?:(?!\*\*)[^\n])*?[^\s*/])?)\*\*(?![\w*/])/;
 const URL_START = /^https?:\/\//i;
 const URL_CHARS = /^[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%]+/;
 
@@ -20,7 +20,7 @@ export function markdown(text) {
   let paragraph = [];
   let items = null;
   let base = 0;
-  let gap = false;
+  let gap = 0;
   let fence = null;
 
   const endParagraph = () => {
@@ -52,7 +52,7 @@ export function markdown(text) {
     if (line.trim() === "") {
       // A blank line ends a paragraph but not a list: the next bullet or indented line carries it on
       endParagraph();
-      gap = items !== null;
+      if (items) gap += 1;
       continue;
     }
     const heading = HEADING.exec(line);
@@ -78,13 +78,13 @@ export function markdown(text) {
       const item = items.at(-1);
       const sub = item.sub.at(-1);
       const target = sub && indent >= sub.offset ? sub : item;
-      if (gap) target.lines.push("");
+      target.lines.push(...Array(gap).fill(""));
       target.lines.push(spaced.slice(target.offset));
     } else {
       endList();
       paragraph.push(line);
     }
-    gap = false;
+    gap = 0;
   }
   // An unclosed fence runs to the end, as in CommonMark
   if (fence) blocks.push(node("pre", [node("code", [fence.lines.join("\n")])]));

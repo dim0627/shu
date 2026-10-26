@@ -345,8 +345,8 @@ describe("markdown", () => {
   });
 
   test("keeps a list across a blank line, and the indent of a line beyond the item's own", () => {
-    expect(markdown("- a\n\n- b\n\n  more\n    deeper\n\nAfter")).toEqual([
-      ul(li("a"), li("b\n\nmore\n  deeper")),
+    expect(markdown("- a\n\n- b\n\n\n  more\n    deeper\n\nAfter")).toEqual([
+      ul(li("a"), li("b\n\n\nmore\n  deeper")),
       p("After"),
     ]);
   });
@@ -403,7 +403,7 @@ describe("markdown", () => {
     "Mention <!channel> and <!here>, & < > <b>bold</b> <script>alert(1)</script>",
     "A ``` inside a sentence, and an unmatched ` backtick",
     "retry_with_backoff and _private_ stay, as do *one* star, a * b, and test/**/*.test.js",
-    "Globs a/**/b and c/**/d, 2**10**, and ** spaced ** are not bold, nor is #123",
+    "Globs a/**/b and c/**/d, **src**/file, 2**10**, and ** spaced ** are not bold, nor is #123",
   ])("leaves %s as text", (text) => {
     expect(markdown(text)).toEqual([p(text)]);
   });
