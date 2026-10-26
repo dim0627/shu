@@ -61,6 +61,10 @@ shu status done aoi-kitsune akai-tsuru --json     # when the work is finished (d
 
 shu log aoi-kitsune "The retry path does not set an idempotency key." --author claude
 shu log aoi-kitsune "The provider will ship a fix on Friday." --note "Waiting for Friday's fix" --author claude
+shu log aoi-kitsune --author claude <<'EOF'      # an entry with several points
+- `charge()` retries on a timeout without an idempotency key
+- The provider documents the key: https://docs.example.com/idempotency
+EOF
 shu artifact aoi-kitsune ./brief.md               # the file lands in "$(shu path aoi-kitsune)/artifacts"
 ```
 
@@ -99,7 +103,8 @@ should hold, update the body with `save`.
   shows the body whole and only the last three log entries.
 - **log**: what happened and what you learned, one entry per event, with
   `--author` set to your own name. Entries are permanent, so a correction is a
-  new entry.
+  new entry. Write an entry in Markdown kept to `- ` bullets, `code`, and links:
+  several points go on bullets of their own.
 - **artifacts**: files worth rereading (a brief, an investigation report, a fix
   plan). Read them from the path that `shu path` prints.
 
