@@ -39,6 +39,8 @@ const USAGE = {
   log: `  shu log <id> [message] [--author <name>] [--note <text>]
       Append one log entry (reads the message from standard input if omitted), then
       print the task's note, to check whether the entry has outdated it.
+      The message is Markdown kept to "- " bullets, \`code\`, and links: several points
+      go on bullets of their own. No headings or tables.
       --note also sets the note, after the entry is written (an empty text clears it):
         shu log <id> "Provider replied: a fix ships Friday" --note "Waiting for Friday's fix"
       A message that starts with "-" must come after "--" or from standard input,

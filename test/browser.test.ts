@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 // @ts-expect-error The extension is plain JavaScript, loaded by Chrome as is
 import { refLink, showBadge } from "../browser/chrome/lookup.js";
+// @ts-expect-error The extension is plain JavaScript, loaded by Chrome as is
+import { markdown } from "../browser/chrome/markdown.js";
 import { cleanupHomes, create, executable, SHU_STAND_IN, shu, shuJson, spawnCollect, tempHome } from "./helpers";
 
 setDefaultTimeout(30_000);
@@ -316,5 +318,65 @@ describe("extension", () => {
     }
     expect(calls.text).toEqual({ tabId: 7, text });
     expect(calls.title).toEqual({ tabId: 7, title });
+  });
+});
+
+describe("markdown", () => {
+  const p = (...children: unknown[]) => ({ tag: "p", children });
+  const ul = (...children: unknown[]) => ({ tag: "ul", children });
+  const li = (...children: unknown[]) => ({ tag: "li", children });
+  const code = (text: string) => ({ tag: "code", children: [text] });
+  const a = (href: string, text = href) => ({ tag: "a", href, children: [text] });
+
+  test("renders bullets, nested one level, with indented lines continuing an item", () => {
+    expect(markdown("Found:\n- one\n  - two\n    still two\n* three\nNext: four")).toEqual([
+      p("Found:"),
+      ul(li("one", ul(li("two\nstill two"))), li("three")),
+      p("Next: four"),
+    ]);
+  });
+
+  test("renders inline code, and nothing inside it", () => {
+    expect(markdown("Run `shu show https://example.com/a` and ``a ` b``")).toEqual([
+      p("Run ", code("shu show https://example.com/a"), " and ", code("a ` b")),
+    ]);
+  });
+
+  test("renders a fenced code block as written", () => {
+    expect(markdown("Before\n```ts\n- not a bullet\n<b>[x](https://example.com)</b>\n```\nAfter")).toEqual([
+      p("Before"),
+      { tag: "pre", children: [code("- not a bullet\n<b>[x](https://example.com)</b>")] },
+      p("After"),
+    ]);
+  });
+
+  test("renders links and bare URLs, leaving the punctuation after a URL outside it", () => {
+    expect(markdown("See [the docs](https://docs.example.com/a) and https://example.com/b_(c)).")).toEqual([
+      p("See ", a("https://docs.example.com/a", "the docs"), " and ", a("https://example.com/b_(c)"), ")."),
+    ]);
+  });
+
+  test.each(["[click](javascript:alert(1))", "javascript:alert(1)", "[mail](mailto:a@example.com)", "xhttps://example.com"])(
+    "links nothing in %s",
+    (text) => {
+      expect(markdown(text)).toEqual([p(text)]);
+    },
+  );
+
+  test.each([
+    "Mention <!channel> and <!here>, & < > <b>bold</b> <script>alert(1)</script>",
+    "A ``` inside a sentence, and an unmatched ` backtick",
+    "unlock_all_avatar_items and _private_ stay, as do *one* star, a * b, and test/**/*.test.js",
+    "## Findings stays a line, as does # one",
+  ])("leaves %s as text", (text) => {
+    expect(markdown(text)).toEqual([p(text)]);
+  });
+
+  test("links only the URL of a Slack-style <url|text>", () => {
+    expect(markdown("<https://example.com/a|text>")).toEqual([p("<", a("https://example.com/a"), "|text>")]);
+  });
+
+  test("keeps the line breaks and indentation of plain text", () => {
+    expect(markdown("one\n   two\r\nthree\n\nfour")).toEqual([p("one\n   two\nthree"), p("four")]);
   });
 });

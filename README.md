@@ -48,7 +48,7 @@ The repository holds two skills, and the installer asks which to add. If you ins
 
 ### Chrome extension
 
-`browser/` holds an extension for Google Chrome that marks the toolbar icon when a task refs the page you are on: a pull request, a Linear issue, a Slack thread, a Notion page, or a URL a task holds (matched exactly, apart from a `#fragment`). Its popup shows the task's status, note, refs as links, artifacts, the last three log entries, and body. It only reads. It needs `python3`, `shu` 0.6.0 or later, and a clone of this repository:
+`browser/` holds an extension for Google Chrome that marks the toolbar icon when a task refs the page you are on: a pull request, a Linear issue, a Slack thread, a Notion page, or a URL a task holds (matched exactly, apart from a `#fragment`). Its popup shows the task's status, note, refs as links, artifacts, the last three log entries, and body, with bullets, `code`, and links in the entries and the body rendered. It only reads. It needs `python3`, `shu` 0.6.0 or later, and a clone of this repository:
 
 1. Open `chrome://extensions`, turn on Developer mode, and load `browser/chrome` with "Load unpacked"
 2. Copy the extension's ID from that page, and run `sh browser/install.sh <ID>` in a shell where `shu` works
@@ -101,7 +101,7 @@ shu find --ref ABC-123
 | `shu save [--remove-ref <ref>]...` | Create or update a task from JSON on standard input. |
 | `shu status <status> <id>... [--note <text>]` | Set the status of one or more tasks, and with `--note` their note. Nothing is changed if any `<id>` does not name a task. A note that starts with `-` is written `--note="- text"`. |
 | `shu find --ref <ref>` | Look up the task that owns a reference. |
-| `shu log <id> [message] [--author <name>] [--note <text>]` | Append one log entry, then print the task's note. Reads the message from standard input if omitted. `--note` also sets the note. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. |
+| `shu log <id> [message] [--author <name>] [--note <text>]` | Append one log entry, then print the task's note. Reads the message from standard input if omitted. `--note` also sets the note. A message that starts with `-` goes after `--` (`shu log <id> -- "- a bullet"`) or on standard input. The message is Markdown kept to `- ` bullets, `code`, and links. |
 | `shu artifact <id> <file> [--name <name>] [--force]` | Copy a file into the task. Use `-` to read from standard input (requires `--name`). |
 | `shu path <id>` | Print the absolute path of the task directory. |
 | `shu kinds` | List the kinds in use, with the number of tasks of each. |

@@ -34,7 +34,7 @@
       }
       * { box-sizing: border-box; }
       body {
-        width: 400px;
+        width: 560px;
         margin: 0;
         background: var(--bg);
         color: var(--text);
@@ -113,8 +113,8 @@
         width: 1px;
         background: var(--line);
       }
-      .timeline li { position: relative; padding-bottom: 10px; }
-      .timeline li::before {
+      .timeline > li { position: relative; padding-bottom: 10px; }
+      .timeline > li::before {
         content: "";
         position: absolute;
         left: -16px;
@@ -125,12 +125,21 @@
         background: var(--bg);
         border: 2px solid var(--muted);
       }
-      .timeline li:first-child::before { border-color: var(--shu); background: var(--shu); }
+      .timeline > li:first-child::before { border-color: var(--shu); background: var(--shu); }
       .at { font-size: 11px; color: var(--muted); }
-      pre { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+      .md { margin-top: 2px; overflow-wrap: anywhere; }
+      .md > * { margin: 0; }
+      .md > * + * { margin-top: 6px; }
+      .md p, .md li { white-space: pre-wrap; }
+      .md ul { margin: 0; padding-left: 18px; list-style: disc; }
+      .md ul ul { list-style: circle; }
+      .md a { color: var(--shu); }
+      .md code { padding: 0 3px; border-radius: 4px; background: var(--surface); font: 12px var(--mono); }
+      .md pre { padding: 6px 8px; border-radius: 6px; background: var(--surface); white-space: pre-wrap; }
+      .md pre code { padding: 0; background: none; }
       details { border: 1px solid var(--line); border-radius: 8px; }
       summary { padding: 6px 10px; cursor: pointer; color: var(--muted); font-size: 12px; }
-      details pre { max-height: 180px; overflow: auto; padding: 0 10px 10px; }
+      details .md { max-height: 180px; overflow: auto; margin: 0; padding: 0 10px 10px; }
       button {
         flex: none;
         padding: 2px 8px;

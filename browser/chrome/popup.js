@@ -1,4 +1,5 @@
 import { lookup, refLink, showBadge } from "./lookup.js";
+import { markdown } from "./markdown.js";
 
 const root = document.getElementById("root");
 
@@ -9,6 +10,16 @@ function el(tag, props = {}, ...children) {
   node.append(...children.filter((c) => c !== null));
   return node;
 }
+
+function tree(nodes) {
+  return nodes.map((n) =>
+    typeof n === "string"
+      ? n
+      : el(n.tag, n.href ? { href: n.href, target: "_blank", rel: "noreferrer" } : {}, ...tree(n.children)),
+  );
+}
+
+const prose = (text) => el("div", { className: "md" }, ...tree(markdown(text)));
 
 const seal = () => el("div", { className: "seal", textContent: "朱" });
 
@@ -104,12 +115,12 @@ function render(reply) {
                   "li",
                   {},
                   el("div", { className: "at", textContent: `${shortTime(e.at)} · ${e.author}` }),
-                  el("pre", { textContent: e.message }),
+                  prose(e.message),
                 ),
               ),
           ),
       task.body
-        ? el("details", { open: true, style: "margin-top: 16px" }, el("summary", { textContent: "Body" }), el("pre", { textContent: task.body }))
+        ? el("details", { open: true, style: "margin-top: 16px" }, el("summary", { textContent: "Body" }), prose(task.body))
         : null,
     ),
   );
