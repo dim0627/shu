@@ -327,12 +327,27 @@ describe("markdown", () => {
   const li = (...children: unknown[]) => ({ tag: "li", children });
   const code = (text: string) => ({ tag: "code", children: [text] });
   const a = (href: string, text = href) => ({ tag: "a", href, children: [text] });
+  const strong = (...children: unknown[]) => ({ tag: "strong", children });
 
   test("renders bullets, nested one level, with indented lines continuing an item", () => {
     expect(markdown("Found:\n- one\n  - two\n    still two\n* three\nNext: four")).toEqual([
       p("Found:"),
       ul(li("one", ul(li("two\nstill two"))), li("three")),
       p("Next: four"),
+    ]);
+  });
+
+  test("nests a bullet by its indent relative to the list's first bullet, with a tab as indent", () => {
+    expect(markdown("Notes:\n  - a\n  - b\n    - c\n- d\n\t- e")).toEqual([
+      p("Notes:"),
+      ul(li("a"), li("b", ul(li("c"))), li("d", ul(li("e")))),
+    ]);
+  });
+
+  test("keeps a list across a blank line, and the indent of a line beyond the item's own", () => {
+    expect(markdown("- a\n\n- b\n\n  more\n    deeper\n\nAfter")).toEqual([
+      ul(li("a"), li("b\n\nmore\n  deeper")),
+      p("After"),
     ]);
   });
 
@@ -355,12 +370,26 @@ describe("markdown", () => {
       { tag: "pre", children: [code("```ts\nx\n```")] },
       p("After"),
     ]);
+    expect(markdown("```\n```ts\nx\n```")).toEqual([{ tag: "pre", children: [code("```ts\nx")] }]);
+  });
+
+  test("reads three backticks at the start of a line as inline code when they close on the same line", () => {
+    expect(markdown("```npm ci``` failed\nnext")).toEqual([p(code("npm ci"), " failed\nnext")]);
+  });
+
+  test("renders a heading as a bold line, and a tight **pair** as bold", () => {
+    expect(markdown("## Findings\n- **Done:** `x` and **a `b`**\n# one #")).toEqual([
+      p(strong("Findings")),
+      ul(li(strong("Done:"), " ", code("x"), " and ", strong("a ", code("b")))),
+      p(strong("one")),
+    ]);
   });
 
   test("renders links and bare URLs, leaving the punctuation after a URL outside it", () => {
     expect(markdown("See [the docs](https://docs.example.com/a) and https://example.com/b_(c)).")).toEqual([
       p("See ", a("https://docs.example.com/a", "the docs"), " and ", a("https://example.com/b_(c)"), ")."),
     ]);
+    expect(markdown("[the page](https://example.com/a_(b))")).toEqual([p(a("https://example.com/a_(b)", "the page"))]);
   });
 
   test.each(["[click](javascript:alert(1))", "javascript:alert(1)", "[mail](mailto:a@example.com)", "xhttps://example.com"])(
@@ -373,8 +402,8 @@ describe("markdown", () => {
   test.each([
     "Mention <!channel> and <!here>, & < > <b>bold</b> <script>alert(1)</script>",
     "A ``` inside a sentence, and an unmatched ` backtick",
-    "unlock_all_avatar_items and _private_ stay, as do *one* star, a * b, and test/**/*.test.js",
-    "## Findings stays a line, as does # one",
+    "retry_with_backoff and _private_ stay, as do *one* star, a * b, and test/**/*.test.js",
+    "Globs a/**/b and c/**/d, 2**10**, and ** spaced ** are not bold, nor is #123",
   ])("leaves %s as text", (text) => {
     expect(markdown(text)).toEqual([p(text)]);
   });
