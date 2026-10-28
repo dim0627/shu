@@ -53,7 +53,8 @@ shu show aoi-kitsune --json                       # metadata, body, log, artifac
 shu show aoi-kitsune --log 3 --json               # the same, with only the last 3 log entries
 
 echo '{"title": "Investigate double-charged payments", "kind": "bug-investigation",
-       "refs": ["https://github.com/example-org/example-repo/pull/482", "ABC-123"]}' | shu save --json
+       "refs": ["https://github.com/example-org/example-repo/pull/482",
+                {"ref": "ABC-124", "label": "Child ticket: retry with an idempotency key"}]}' | shu save --json
 echo '{"id": "aoi-kitsune", "body": "A retry without an idempotency key charges twice."}' | shu save --json
 shu status open aoi-kitsune --json                # when you start a todo task
 shu status waiting aoi-kitsune --note "Waiting for the provider to reply" --json
@@ -93,6 +94,9 @@ should hold, update the body with `save`.
   `save`. `save` finds the existing task by its refs, so a save that carries them
   can never create a duplicate. Pass URLs as they are; SHU normalizes them. Work
   that lives nowhere else has no refs: see "When to make a task".
+  When a ref's ID alone does not say what it is, give it a label: its relation
+  to the task and its topic ("Child ticket: client API", "PR that fixes the
+  retry"). Relabel it when the label no longer fits.
 - **note**: where the task stands, in one line: for a `waiting` task, who or what
   it waits on; for an `open` one, the next step. `shu list` shows it, so it is
   readable without opening the task. The next step lives here only: a copy in

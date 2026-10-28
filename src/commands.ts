@@ -32,6 +32,7 @@ import {
 import {
   applyUpdate,
   differingFields,
+  labelsOf,
   parseNote,
   parseSaveInput,
   type SaveInput,
@@ -50,7 +51,10 @@ export interface Ctx {
   random: () => number;
 }
 
-export type TaskSummary = Pick<Task, "id" | "title" | "kind" | "status" | "note" | "refs" | "created" | "updated">;
+export type TaskSummary = Pick<
+  Task,
+  "id" | "title" | "kind" | "status" | "note" | "refs" | "ref_labels" | "created" | "updated"
+>;
 export type TaskDetail = TaskSummary & Pick<Task, "body">;
 export type SaveResult = "created" | "updated" | "matched";
 export type KindCount = { kind: string; count: number };
@@ -68,8 +72,8 @@ function parseStatus(value: string): Status {
   return value as Status;
 }
 
-function summary({ id, title, kind, status, note, refs, created, updated }: Task): TaskSummary {
-  return { id, title, kind, status, note, refs, created, updated };
+function summary({ id, title, kind, status, note, refs, ref_labels, created, updated }: Task): TaskSummary {
+  return { id, title, kind, status, note, refs, ref_labels, created, updated };
 }
 
 function detail(task: Task): TaskDetail {
@@ -147,7 +151,16 @@ export function save(
   removeRefInputs: string[] = [],
 ): { result: SaveResult; task: TaskDetail; skipped: SkippedField[] } {
   const input = parseSaveInput(inputText);
-  const addRefs = unique((input.refs ?? []).map(normalizeRef));
+  const given = (input.refs ?? []).map(({ ref, label }) => ({ ref: normalizeRef(ref), label }));
+  const addRefs = unique(given.map(({ ref }) => ref));
+  const labels: Record<string, string> = {};
+  for (const { ref, label } of given) {
+    if (label === undefined) continue;
+    if (ref in labels && labels[ref] !== label) {
+      throw new ShuError("invalid_input", `ref ${ref} is given with two different labels`);
+    }
+    labels[ref] = label;
+  }
   const removeRefs = unique(removeRefInputs.map(normalizeRef));
   const both = addRefs.find((ref) => removeRefs.includes(ref));
   if (both !== undefined) {
@@ -161,11 +174,14 @@ export function save(
         throw new ShuError("invalid_input", "--remove-ref needs an existing task: give its id or one of its refs");
       }
       const result: SaveResult = "created";
-      return { result, task: detail(createTask(ctx, input, addRefs)), skipped: [] };
+      return { result, task: detail(createTask(ctx, input, addRefs, labels)), skipped: [] };
     }
     // Input without an id may have been written to create a task, so on a match it must not overwrite one
     const matched = target.result === "matched";
-    const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, { skipUnchanged: matched });
+    const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, {
+      skipUnchanged: matched,
+      labels,
+    });
     return { result: target.result, task: detail(task), skipped: matched ? differingFields(task, input) : [] };
   };
 
@@ -207,16 +223,18 @@ function updateTask(
   input: SaveInput,
   addRefs: string[],
   removeRefs: string[],
-  { skipUnchanged = false } = {},
+  { skipUnchanged = false, labels = {} as Record<string, string> } = {},
 ): Task {
   const { home } = ctx;
   return withLock(taskLock(home, id), () => {
     // Read the clock only once the lock is held: a save that waited must not write an older `updated`
     const updated = formatLocalIso(ctx.now());
     const task = readTask(home, id);
-    const next = applyUpdate(task, input, addRefs, removeRefs, updated);
+    const next = applyUpdate(task, input, addRefs, removeRefs, updated, labels);
     // Running a sync or a status change again must not reorder the list, so one that changes nothing writes nothing
-    const sameRefs = next.refs.length === task.refs.length && next.refs.every((ref, i) => ref === task.refs[i]);
+    const sameRefs =
+      next.refs.length === task.refs.length &&
+      next.refs.every((ref, i) => ref === task.refs[i] && next.ref_labels[ref] === task.ref_labels[ref]);
     const unchanged = sameRefs && FIELDS.every((key) => next[key] === task[key]);
     if (skipUnchanged && unchanged) return task;
     writeFileAtomic(taskFile(home, id), serializeTask(next));
@@ -224,7 +242,7 @@ function updateTask(
   });
 }
 
-function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
+function createTask(ctx: Ctx, input: SaveInput, refs: string[], labels: Record<string, string>): Task {
   if (input.title === undefined || input.kind === undefined) {
     throw new ShuError("invalid_input", "title and kind are required to create a task");
   }
@@ -237,6 +255,7 @@ function createTask(ctx: Ctx, input: SaveInput, refs: string[]): Task {
     status: input.status ?? "open",
     note: input.note ?? "",
     refs,
+    ref_labels: labelsOf(refs, labels),
     created: stamp,
     updated: stamp,
     body: trimBlankEdges(input.body ?? ""),
