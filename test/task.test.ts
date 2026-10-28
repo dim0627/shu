@@ -132,7 +132,7 @@ describe("ref labels in task.md", () => {
     "- looks like a list item",
     "#482 # not a comment",
     "123",
-    "non-ASCII: クライアントAPI — naïve",
+    "non-ASCII: café ☕ — naïve",
   ])("a label that is special in YAML survives: %p", (label) => {
     const task = parseTaskFile(SPEC_EXAMPLE, ID);
     const labeled = { ...task, ref_labels: { "linear:ABC-123": label } };
@@ -238,6 +238,13 @@ describe("a url ref stored before its URL had a kind of its own", () => {
     expect(task.refs).toEqual([`notion:${PAGE}`]);
     expect(task.ref_labels).toEqual({ [`notion:${PAGE}`]: "first" });
     expect(serializeTask(task)).toContain(`  - ref: notion:${PAGE}\n    label: first\n`);
+  });
+
+  test("two URLs of one page keep a label that only the second has", () => {
+    const text = frontmatter({
+      refs: `["url:https://app.notion.com/p/${PAGE}", {ref: "url:https://www.notion.so/${PAGE}", label: second}]`,
+    });
+    expect(parseTaskFile(text, ID).ref_labels).toEqual({ [`notion:${PAGE}`]: "second" });
   });
 
   test("two URLs of one page read as one ref", () => {

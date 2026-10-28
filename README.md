@@ -119,7 +119,7 @@ The target task is chosen in this order:
 3. If `refs` belong to two or more different tasks, it is an error. SHU never merges tasks on its own.
 4. Otherwise a new task is created. `title` and `kind` are required; `status` defaults to `open`, so pass `todo` for work that is not started.
 
-A matched save never overwrites `title`, `kind`, `status`, `note`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference leaves the task untouched.
+A matched save never overwrites `title`, `kind`, `status`, `note`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference and no label leaves the task untouched.
 
 Updates by `id` are partial: only the fields you pass are changed, except that a new `status` clears the `note` unless you pass one. `refs` are added to the existing ones, never replaced. A reference can be given with a label, `{"ref": "ABC-123", "label": "Child ticket: client API"}`, which replaces its stored label (an empty one removes it); a reference given alone keeps the label it has. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
 

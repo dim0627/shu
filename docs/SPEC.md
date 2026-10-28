@@ -66,7 +66,7 @@ updated: 2026-10-01T12:34:56+09:00
 | `note` | string | | One line, with no control characters, that says where the task stands: why it is in its status, such as who a `waiting` task is waiting on, or the next step of an `open` one. `list` shows it, and `log` prints it after every entry (§6.5). Cleared when the status changes without a new note (§6.3, §6.9) |
 | `refs` | (string \| `{ref, label}`)[] | | Normalized refs (§5), each with an optional label. No duplicates. A ref with a label is written as a mapping, one without as the ref alone |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
-| `updated` | ISO 8601 | ✓ | Updated by SHU on every `save`, `status`, or `log --note` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9). A `log` without `--note` does not write the task, so a log entry newer than `updated` was written after the note and the body were last touched (§10.1) |
+| `updated` | ISO 8601 | ✓ | Updated by SHU on every `save`, `status`, or `log --note` that writes the task (a matched save that changes no ref and no label writes nothing, §6.3; nor does a `status` that changes nothing, §6.9). A `log` without `--note` does not write the task, so a log entry newer than `updated` was written after the note and the body were last touched (§10.1) |
 
 Unknown fields are preserved: reading a task and writing it back does not drop them or change their values, and comments in the front matter are kept. The exception is a comment attached to a field that SHU removes (`refs` when the last ref is removed, `note` when the note is cleared): it is removed with the field.
 

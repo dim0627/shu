@@ -26,9 +26,9 @@ const USAGE = {
       A label says in one line what the ref is to the task ("Child ticket: client
       API"). Giving it replaces the stored one ("" removes it); a ref given
       alone keeps its label. --remove-ref removes the label with the ref.
-      Without id, a task that already owns one of refs is matched: its refs are
-      merged and nothing else changes. "skipped" lists the fields that were not
-      applied; save again with the id to apply them.
+      Without id, a task that already owns one of refs is matched: its refs and
+      their labels are merged and nothing else changes. "skipped" lists the
+      fields that were not applied; save again with the id to apply them.
       Otherwise a new task is created (title and kind required; status defaults
       to open, so pass todo for work that is not started)`,
   status: `  shu status <status> <id>... [--note <text>]

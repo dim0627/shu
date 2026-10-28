@@ -121,8 +121,8 @@ tell you again, such as a PR's review state or CI result: fetch that fresh.
 - Collecting information (GitHub, Linear, Slack) is your job, with your own
   tools. SHU stays offline and only stores what you hand it.
 - `"result": "matched"` means the task already existed: `save` merged the refs
-  and applied nothing else, and `skipped` names the fields it left alone. Read
-  the task with `show`, then update it by `id`.
+  and their labels and applied nothing else, and `skipped` names the fields it
+  left alone. Read the task with `show`, then update it by `id`.
 - `find` exits non-zero with `not_found` when no task owns the ref: that is the
   answer "no task yet". Create one with `save` only for work that is a task
   (see "When to make a task").
