@@ -14,6 +14,8 @@ export interface Task {
   status: Status;
   note: string;
   refs: string[];
+  // Kept apart from refs so that refs stays a string[] in the JSON
+  ref_labels: Record<string, string>;
   created: string;
   updated: string;
   body: string;
@@ -27,8 +29,14 @@ export interface SaveInput {
   kind?: string;
   status?: Status;
   note?: string;
-  refs?: string[];
+  refs?: RefInput[];
   body?: string;
+}
+
+// An empty label removes the stored one; no label keeps it
+export interface RefInput {
+  ref: string;
+  label?: string;
 }
 
 const INPUT_KEYS = ["id", "title", "kind", "status", "note", "refs", "body"];
@@ -56,8 +64,14 @@ export function parseNote(value: unknown): string {
   if (note === undefined) throw new ShuError("invalid_input", NOTE_RULE);
   return note;
 }
-const isStringArray = (v: unknown): v is string[] =>
-  Array.isArray(v) && v.every((item) => typeof item === "string");
+const LABEL_RULE = "a ref is a string or {ref, label}, the label one line with no control characters";
+
+function readRefItem(v: unknown): RefInput | undefined {
+  if (typeof v === "string") return { ref: v };
+  if (!isRecord(v) || Object.keys(v).sort().join() !== "label,ref" || typeof v.ref !== "string") return undefined;
+  const label = normalizeNote(v.label);
+  return label === undefined ? undefined : { ref: v.ref, label };
+}
 const isTimestamp = (v: unknown): v is string => typeof v === "string" && isIso8601(v);
 
 export function parseTaskFile(text: string, id: string): Task {
@@ -79,19 +93,37 @@ export function parseTaskFile(text: string, id: string): Task {
   if (!isLine(kind)) throw invalid("kind must be a non-empty single-line string");
   if (!isStatus(status)) throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
   if (note === undefined) throw invalid(NOTE_RULE);
-  if (!isStringArray(stored)) throw invalid("refs must be an array of strings");
-  if (new Set(stored).size !== stored.length) throw invalid("refs contains duplicates");
+  if (!Array.isArray(stored)) throw invalid("refs must be an array");
+  const items = stored.map(readRefItem);
+  if (items.some((item) => item === undefined)) throw invalid(LABEL_RULE);
+  const raw = items.map((item) => (item as RefInput).ref);
+  if (new Set(raw).size !== raw.length) throw invalid("refs contains duplicates");
   const refs: string[] = [];
-  for (const ref of stored) {
+  const ref_labels: Record<string, string> = {};
+  for (const { ref, label } of items as RefInput[]) {
     const read = readStoredRef(ref);
     if (read === null) throw invalid(`refs contains a non-normalized ref (${ref})`);
     // Two URLs of one page, saved as two url refs, read as the same ref
-    if (!refs.includes(read)) refs.push(read);
+    if (refs.includes(read)) continue;
+    refs.push(read);
+    if (label) ref_labels[read] = label;
   }
   if (!isTimestamp(created)) throw invalid("created must be an ISO 8601 timestamp");
   if (!isTimestamp(updated)) throw invalid("updated must be an ISO 8601 timestamp");
 
-  return { id, title, kind, status, note, refs, created, updated, body: trimBlankEdges(m[2]), front: m[1] };
+  return {
+    id,
+    title,
+    kind,
+    status,
+    note,
+    refs,
+    ref_labels,
+    created,
+    updated,
+    body: trimBlankEdges(m[2]),
+    front: m[1],
+  };
 }
 
 export function serializeTask(task: Task): string {
@@ -100,7 +132,7 @@ export function serializeTask(task: Task): string {
   doc.contents = map;
   for (const key of FRONT_KEYS) {
     if ((key === "refs" && task.refs.length === 0) || (key === "note" && task.note === "")) map.delete(key);
-    else place(doc, map, key, task[key]);
+    else place(doc, map, key, key === "refs" ? refItems(task) : task[key]);
   }
   const body = task.body === "" ? "" : `\n${task.body}\n`;
   return `---\n${stringify(doc, task.id)}---\n${body}`;
@@ -115,8 +147,12 @@ function stringify(doc: Document, id: string): string {
   }
 }
 
+function refItems({ refs, ref_labels }: Task): (string | RefInput)[] {
+  return refs.map((ref) => (ref_labels[ref] ? { ref, label: ref_labels[ref] } : ref));
+}
+
 // A field that is not there yet goes right after the fields that precede it in FRONT_KEYS
-function place(doc: Document, map: YAMLMap, key: (typeof FRONT_KEYS)[number], value: string | string[]): void {
+function place(doc: Document, map: YAMLMap, key: (typeof FRONT_KEYS)[number], value: string | unknown[]): void {
   const node = Array.isArray(value) ? doc.createNode(value) : value;
   if (map.has(key)) {
     map.set(key, node);
@@ -150,7 +186,10 @@ export function parseSaveInput(text: string): SaveInput {
     throw invalid(`status must be one of ${STATUSES.join(" / ")}`);
   }
   if (note !== undefined && normalizeNote(note) === undefined) throw invalid(NOTE_RULE);
-  if (refs !== undefined && !isStringArray(refs)) throw invalid("refs must be an array of strings");
+  const refItems = Array.isArray(refs) ? refs.map(readRefItem) : undefined;
+  if (refs !== undefined && (refItems === undefined || refItems.some((item) => item === undefined))) {
+    throw invalid(`refs must be an array, and ${LABEL_RULE}`);
+  }
   if (body !== undefined && typeof body !== "string") throw invalid("body must be a string");
 
   return {
@@ -159,7 +198,7 @@ export function parseSaveInput(text: string): SaveInput {
     ...(kind !== undefined && { kind: kind.trim() }),
     ...(status !== undefined && { status }),
     ...(note !== undefined && { note: normalizeNote(note) }),
-    ...(refs !== undefined && { refs }),
+    ...(refItems !== undefined && { refs: refItems as RefInput[] }),
     ...(body !== undefined && { body }),
   };
 }
@@ -185,8 +224,10 @@ export function applyUpdate(
   addRefs: string[],
   removeRefs: string[],
   updated: string,
+  labels: Record<string, string> = {},
 ): Task {
   const status = input.status ?? task.status;
+  const refs = [...new Set([...task.refs, ...addRefs])].filter((ref) => !removeRefs.includes(ref));
   return {
     ...task,
     title: input.title ?? task.title,
@@ -195,7 +236,12 @@ export function applyUpdate(
     // A note says why the task is in its status, so it must not outlive that status
     note: input.note ?? (status === task.status ? task.note : ""),
     body: input.body === undefined ? task.body : trimBlankEdges(input.body),
-    refs: [...new Set([...task.refs, ...addRefs])].filter((ref) => !removeRefs.includes(ref)),
+    refs,
+    ref_labels: labelsOf(refs, { ...task.ref_labels, ...labels }),
     updated,
   };
+}
+
+export function labelsOf(refs: string[], labels: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(refs.filter((ref) => labels[ref]).map((ref) => [ref, labels[ref]]));
 }

@@ -36,11 +36,14 @@ function copyButton(text, label = "Copy") {
 // "2026-10-14T16:52:08+09:00" -> "10/14 16:52", in the offset the entry was written with
 const shortTime = (at) => `${at.slice(5, 7)}/${at.slice(8, 10)} ${at.slice(11, 16)}`;
 
-function refItem(ref) {
+// A shu older than 0.10.0 sends no ref_labels
+function refItem(ref, refLabel) {
   const { kind, label, href } = refLink(ref);
-  const name = href
-    ? el("a", { className: "name", href, target: "_blank", rel: "noreferrer", textContent: label, title: href })
-    : el("span", { className: "name", textContent: label });
+  const link = href
+    ? el("a", { href, target: "_blank", rel: "noreferrer", textContent: label, title: href })
+    : el("span", { textContent: label });
+  const labelLine = refLabel ? el("div", { className: "label", textContent: refLabel }) : null;
+  const name = el("div", { className: "name" }, link, labelLine);
   return el("li", {}, el("span", { className: "pill", textContent: kind }), name, copyButton(href ?? ref, "Copy"));
 }
 
@@ -86,7 +89,7 @@ function render(reply) {
       heading("Refs", task.refs.length ? `${task.refs.length}` : null),
       task.refs.length === 0
         ? el("div", { className: "none", textContent: "None" })
-        : el("ul", { className: "files refs" }, ...task.refs.map(refItem)),
+        : el("ul", { className: "files refs" }, ...task.refs.map((ref) => refItem(ref, task.ref_labels?.[ref]))),
       heading("Artifacts", artifacts.length ? `${artifacts.length}` : null),
       artifacts.length === 0
         ? el("div", { className: "none", textContent: "None yet" })

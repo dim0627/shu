@@ -35,6 +35,7 @@ describe("creating a task", () => {
       status: "open",
       note: "",
       refs: [PR_REF],
+      ref_labels: {},
       created: task.created,
       updated: task.created,
       body: "Summary",
@@ -283,6 +284,88 @@ describe("--remove-ref", () => {
     const { save } = setup();
     const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
     expect(save({ id: a.id }, ["abc-9"]).task.refs).toEqual(["linear:ABC-1"]);
+  });
+});
+
+describe("ref labels", () => {
+  const LABEL = "Child ticket: client API";
+
+  test("a ref is saved with its label, under the normalized ref", () => {
+    const { ctx, save } = setup();
+    const { task } = save({ title: "a", kind: "ticket", refs: [PR, { ref: "abc-1", label: LABEL }] });
+    expect(task.refs).toEqual([PR_REF, "linear:ABC-1"]);
+    expect(task.ref_labels).toEqual({ "linear:ABC-1": LABEL });
+    expect(readFileSync(taskFile(ctx.home, task.id), "utf8")).toContain(
+      `  - ${PR_REF}\n  - ref: linear:ABC-1\n    label: "${LABEL}"\n`,
+    );
+    expect(commands.show(ctx, task.id).task.ref_labels).toEqual({ "linear:ABC-1": LABEL });
+  });
+
+  test("a label replaces the stored one, a ref given alone keeps it, and an empty label removes it", () => {
+    const { save } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: [{ ref: "abc-1", label: "old" }] }).task;
+    expect(save({ id: a.id, refs: [{ ref: "ABC-1", label: "new" }] }).task.ref_labels).toEqual({ "linear:ABC-1": "new" });
+    expect(save({ id: a.id, refs: ["abc-1", "abc-2"] }).task.ref_labels).toEqual({ "linear:ABC-1": "new" });
+    expect(save({ id: a.id, title: "renamed" }).task.ref_labels).toEqual({ "linear:ABC-1": "new" });
+    const cleared = save({ id: a.id, refs: [{ ref: "abc-1", label: "" }] }).task;
+    expect(cleared.refs).toEqual(["linear:ABC-1", "linear:ABC-2"]);
+    expect(cleared.ref_labels).toEqual({});
+  });
+
+  test("a matched save applies a label, and one that changes no label writes nothing", () => {
+    const { ctx, save, advance } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: ["abc-1"] }).task;
+    advance();
+    const labeled = save({ title: "other", kind: "ticket", refs: [{ ref: "abc-1", label: LABEL }] });
+    expect(labeled.result).toBe("matched");
+    expect(labeled.task.title).toBe("a");
+    expect(labeled.task.ref_labels).toEqual({ "linear:ABC-1": LABEL });
+    expect(labeled.task.updated).not.toBe(a.updated);
+
+    const file = readFileSync(taskFile(ctx.home, a.id), "utf8");
+    for (const refs of [["abc-1"], [{ ref: "abc-1", label: LABEL }]]) {
+      save({ refs });
+      expect(readFileSync(taskFile(ctx.home, a.id), "utf8")).toBe(file);
+    }
+  });
+
+  test("--remove-ref removes the label with the ref", () => {
+    const { save } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: [{ ref: "abc-1", label: LABEL }, "abc-2"] }).task;
+    const removed = save({ id: a.id }, ["abc-1"]).task;
+    expect(removed.ref_labels).toEqual({});
+    expect(save({ id: a.id, refs: ["abc-1"] }).task.ref_labels).toEqual({});
+  });
+
+  test("a label does not take part in dedupe", () => {
+    const { save } = setup();
+    const a = save({ title: "a", kind: "ticket", refs: [{ ref: "abc-1", label: LABEL }] }).task;
+    const matched = save({ title: "b", kind: "ticket", refs: [{ ref: "ABC-1", label: "x" }] });
+    expect(matched.result).toBe("matched");
+    expect(matched.task.id).toBe(a.id);
+    expect(matched.task.ref_labels).toEqual({ "linear:ABC-1": "x" });
+  });
+
+  test("the same ref with two labels is an error; with one label, given twice, it is not", () => {
+    const { ctx, save } = setup();
+    const twice = [{ ref: "abc-1", label: "x" }, { ref: "ABC-1", label: "y" }];
+    expect(errorOf(() => save({ title: "a", kind: "ticket", refs: twice })).code).toBe("invalid_input");
+    expect(commands.list(ctx, { all: true }).tasks).toHaveLength(0);
+    const same = [{ ref: "abc-1", label: "x" }, "ABC-1", { ref: "abc-1", label: "x" }];
+    expect(save({ title: "a", kind: "ticket", refs: same }).task.ref_labels).toEqual({ "linear:ABC-1": "x" });
+  });
+
+  test.each([
+    ["a mapping without label", { ref: "abc-1" }],
+    ["a mapping with another key", { ref: "abc-1", label: "x", kind: "child" }],
+    ["a label with a line break", { ref: "abc-1", label: "a\nb" }],
+    ["a label with a control character", { ref: "abc-1", label: "a\u001bb" }],
+    ["a label that is not a string", { ref: "abc-1", label: 1 }],
+    ["a ref that is not a string", { ref: 1, label: "x" }],
+  ])("an invalid item is rejected: %s", (_, item) => {
+    const { ctx, save } = setup();
+    expect(errorOf(() => save({ title: "a", kind: "ticket", refs: [item] })).code).toBe("invalid_input");
+    expect(commands.list(ctx, { all: true }).tasks).toHaveLength(0);
   });
 });
 

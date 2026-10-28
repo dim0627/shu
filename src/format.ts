@@ -28,7 +28,7 @@ export function formatTask(task: TaskDetail): string {
     `kind: ${task.kind}  status: ${task.status}`,
     ...(task.note === "" ? [] : [`note: ${task.note}`]),
     `created: ${task.created}  updated: ${task.updated}`,
-    ...task.refs.map((ref) => `ref: ${ref}`),
+    ...task.refs.map((ref) => (task.ref_labels[ref] ? `ref: ${ref} (${task.ref_labels[ref]})` : `ref: ${ref}`)),
   ];
   if (task.body !== "") lines.push("", task.body);
   return lines.join("\n");

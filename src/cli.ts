@@ -19,10 +19,13 @@ const USAGE = {
   save: `  shu save [--remove-ref <ref>]...
       Create or update a task from JSON on standard input
         {"id": "...", "title": "...", "kind": "...", "status": "...", "note": "...",
-         "refs": ["..."], "body": "..."}
+         "refs": ["...", {"ref": "...", "label": "..."}], "body": "..."}
       With id, that task is updated: only the given fields change (and a new
       status clears the note unless one is given), and refs are added to the
       existing ones.
+      A label says in one line what the ref is to the task ("Child ticket: client
+      API"). Giving it replaces the stored one ("" removes it); a ref given
+      alone keeps its label. --remove-ref removes the label with the ref.
       Without id, a task that already owns one of refs is matched: its refs are
       merged and nothing else changes. "skipped" lists the fields that were not
       applied; save again with the id to apply them.

@@ -17,7 +17,8 @@ status: waiting
 note: Waiting for the payment provider to reply
 refs:
   - slack:https://example.slack.com/archives/C000/p1700000000000000
-  - linear:ABC-123
+  - ref: linear:ABC-123
+    label: "Ticket: retries without an idempotency key"
   - github:example-org/example-repo#482
 created: 2026-10-01T12:00:00+09:00
 updated: 2026-10-01T12:34:56+09:00
@@ -55,6 +56,7 @@ describe("reading and writing task.md", () => {
         "linear:ABC-123",
         "github:example-org/example-repo#482",
       ],
+      ref_labels: { "linear:ABC-123": "Ticket: retries without an idempotency key" },
       created: "2026-10-01T12:00:00+09:00",
       updated: "2026-10-01T12:34:56+09:00",
       body: "Current summary",
@@ -100,10 +102,41 @@ describe("reading and writing task.md", () => {
     ["refs is not an array", frontmatter({ refs: "linear:ABC-123" })],
     ["refs is not normalized", frontmatter({ refs: "[abc-123]" })],
     ["duplicate refs", frontmatter({ refs: "[linear:ABC-123, linear:ABC-123]" })],
+    ["duplicate refs, one labeled", frontmatter({ refs: "[linear:ABC-123, {ref: linear:ABC-123, label: x}]" })],
+    ["a labeled ref without its label", frontmatter({ refs: "[{ref: linear:ABC-123}]" })],
+    ["a labeled ref with another key", frontmatter({ refs: "[{ref: linear:ABC-123, label: x, kind: child}]" })],
+    ["a label that is not a string", frontmatter({ refs: "[{ref: linear:ABC-123, label: [x]}]" })],
+    ["a label with a line break", frontmatter({ refs: '[{ref: linear:ABC-123, label: "a\\nb"}]' })],
+    ["a labeled ref that is not normalized", frontmatter({ refs: "[{ref: abc-123, label: x}]" })],
     ["created is not a timestamp", frontmatter({ created: "yesterday" })],
     ["missing updated", frontmatter({ updated: null })],
   ])("an invalid task.md is rejected: %s", (_, text) => {
     expect(codeOf(() => parseTaskFile(text, ID))).toBe("invalid_task");
+  });
+});
+
+describe("ref labels in task.md", () => {
+  test("an empty label reads as none, and the ref is written back alone", () => {
+    const task = parseTaskFile(frontmatter({ refs: '[{ref: linear:ABC-123, label: "  "}]' }), ID);
+    expect(task.ref_labels).toEqual({});
+    expect(serializeTask(task)).toContain("refs:\n  - linear:ABC-123\n");
+  });
+
+  test("a label is trimmed", () => {
+    const task = parseTaskFile(frontmatter({ refs: '[{ref: linear:ABC-123, label: "  child  "}]' }), ID);
+    expect(task.ref_labels).toEqual({ "linear:ABC-123": "child" });
+  });
+
+  test.each([
+    "Child ticket: client API",
+    "- looks like a list item",
+    "#482 # not a comment",
+    "123",
+    "non-ASCII: クライアントAPI — naïve",
+  ])("a label that is special in YAML survives: %p", (label) => {
+    const task = parseTaskFile(SPEC_EXAMPLE, ID);
+    const labeled = { ...task, ref_labels: { "linear:ABC-123": label } };
+    expect(parseTaskFile(serializeTask(labeled), ID).ref_labels).toEqual({ "linear:ABC-123": label });
   });
 });
 
@@ -195,6 +228,16 @@ describe("a url ref stored before its URL had a kind of its own", () => {
   test("reads as that kind", () => {
     const text = stored([`url:https://app.notion.com/p/${PAGE}`, "url:https://example.com/docs/page"]);
     expect(parseTaskFile(text, ID).refs).toEqual([`notion:${PAGE}`, "url:https://example.com/docs/page"]);
+  });
+
+  test("keeps its label, and two URLs of one page keep the first label", () => {
+    const text = frontmatter({
+      refs: `[{ref: "url:https://app.notion.com/p/${PAGE}", label: first}, {ref: "url:https://www.notion.so/${PAGE}", label: second}]`,
+    });
+    const task = parseTaskFile(text, ID);
+    expect(task.refs).toEqual([`notion:${PAGE}`]);
+    expect(task.ref_labels).toEqual({ [`notion:${PAGE}`]: "first" });
+    expect(serializeTask(task)).toContain(`  - ref: notion:${PAGE}\n    label: first\n`);
   });
 
   test("two URLs of one page read as one ref", () => {

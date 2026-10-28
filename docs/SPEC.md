@@ -18,7 +18,7 @@ SHU (朱) is a local task store CLI through which humans and AI agents (mainly C
 | Concept | Description |
 |---|---|
 | Task | A unit of work: a review request, review feedback on your own PR, a bug investigation, an alert investigation, a fix request, an assigned ticket, and so on |
-| Ref | A pointer to where a task came from. A task can have several refs (for example, work that grew from a Slack thread into a ticket and then a PR), or none (work that started in a conversation with an agent; a ref is added when a ticket or a PR appears) |
+| Ref | A pointer to where a task came from. A task can have several refs (for example, work that grew from a Slack thread into a ticket and then a PR), or none (work that started in a conversation with an agent; a ref is added when a ticket or a PR appears). A ref can carry a label, one line on what it is to the task (a child ticket for the client API, the PR that fixes it), because most refs name their page only by an ID |
 | Log | A chronological record of what happened to a task and what was learned. Append-only |
 | Artifact | A file attached to a task: a brief, an investigation report, a fix plan, and so on |
 
@@ -47,7 +47,8 @@ status: waiting
 note: Waiting for the payment provider to reply
 refs:
   - slack:https://example.slack.com/archives/C000/p1700000000000000
-  - linear:ABC-123
+  - ref: linear:ABC-123
+    label: "Ticket: retries without an idempotency key"
   - github:example-org/example-repo#482
 created: 2026-10-01T12:00:00+09:00
 updated: 2026-10-01T12:34:56+09:00
@@ -63,7 +64,7 @@ updated: 2026-10-01T12:34:56+09:00
 | `kind` | string | ✓ | The kind of task. Free-form, but the suggested values are `review` / `pr-followup` / `bug-investigation` / `alert-investigation` / `fix-request` / `ticket`. `shu kinds` (§6.8) lists the kinds already in use, so that a writer can reuse one instead of adding a near-duplicate |
 | `status` | enum | ✓ | `todo` (not started) / `open` (in progress) / `waiting` (blocked on someone else) / `done` / `dropped` |
 | `note` | string | | One line, with no control characters, that says where the task stands: why it is in its status, such as who a `waiting` task is waiting on, or the next step of an `open` one. `list` shows it, and `log` prints it after every entry (§6.5). Cleared when the status changes without a new note (§6.3, §6.9) |
-| `refs` | string[] | | Normalized refs (§5). No duplicates |
+| `refs` | (string \| `{ref, label}`)[] | | Normalized refs (§5), each with an optional label. No duplicates. A ref with a label is written as a mapping, one without as the ref alone |
 | `created` | ISO 8601 | ✓ | Set by SHU. Cannot be changed |
 | `updated` | ISO 8601 | ✓ | Updated by SHU on every `save`, `status`, or `log --note` that writes the task (a matched save that changes no ref writes nothing, §6.3; nor does a `status` that changes nothing, §6.9). A `log` without `--note` does not write the task, so a log entry newer than `updated` was written after the note and the body were last touched (§10.1) |
 
@@ -75,6 +76,9 @@ Unknown fields are preserved: reading a task and writing it back does not drop t
 - A task directory without a `task.md` is considered mid-creation and is treated as if it did not exist
 - A build of SHU reads only the statuses it knows. A task whose status was added by a newer build is `invalid_task` to an older build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before saving a task with a new status
 - `note` is a field of SHU from 0.4.0. A `note` that was written into a `task.md` by hand before then is read as the note: it must follow the rules above (otherwise the task is `invalid_task`), and it is cleared like any other note. A build older than 0.4.0 keeps `note` as an unknown field, so it does not clear the note when it changes the status. Upgrade every `shu` that shares a store before using notes
+- A label follows the rules for a note: one line, with no control characters and no U+2028 or U+2029, and its blank edges trimmed. An empty label is the same as none, and the ref is then written as a string. An item that is a mapping has exactly the keys `ref` and `label`, both strings; anything else is `invalid_task`
+- The label is part of the item rather than a field of its own, so that a ref and its label cannot drift apart: removing the ref removes the label, and a stored `url` ref read as another kind (§5) keeps it
+- Labels are a feature of SHU from 0.10.0. A build older than that reads a task with a labeled ref as `invalid_task`, which makes `list`, `find`, and a `save` with refs fail for the whole store. A task with no label is written as before, so it stays readable. Upgrade every `shu` that shares a store before labeling a ref
 
 ### 3.2 log.md
 
@@ -129,7 +133,7 @@ The format is `<kind>:<value>`. Refs are normalized when saved.
 - `<number>` is a positive integer. Input in the form of a pull request, an issue, or a Linear issue whose number is 0 or too large to be an integer is an error, also when it is a URL (it does not become `url`)
 - GitHub, Linear, Slack, and Notion URLs that do not have the forms above (such as a repository's top page) become `url`
 - **A stored `url` ref whose URL has a kind of its own is read as that kind.** A URL that was saved as `url` before its kind existed (a Notion page saved before `notion` did) would otherwise make its task invalid and never match another URL of the same thing. Only a `url` ref in the form it was stored in is read this way: a short form after `url:`, or a URL in another spelling, is `invalid_task`, as is every other stored ref that is not in its normal form
-  - If that leaves a task with the same ref twice, it is read once
+  - If that leaves a task with the same ref twice, it is read once, with the first label it has
   - If it leaves two tasks with the same ref (each was saved from a different URL of one page), `find` and a `save` without `id` are `ref_conflict` until one of them drops the ref: `shu save --remove-ref <ref>` with the `id` of that task
   - The file is rewritten in the normal form the next time the task is written, by any command, also one that does not name a ref. A build older than the kind does not know it, so the rewritten task is `invalid_task` to that build, which makes `list`, `find`, and a `save` with refs fail for the whole store. Upgrade every `shu` that shares a store before writing with the newer build
 - **A ref belongs to at most one task across all tasks** (the basis of the dedupe in §6.3)
@@ -161,7 +165,7 @@ Output shape with `--json`:
 | `--help`, or no command | `{"help": "<usage text>"}` (with a command, the usage of that command) |
 | `--version` | `{"version": "<version>"}` |
 
-`<task>` is `{"id", "title", "kind", "status", "note", "refs", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none, and `note` as an empty string.
+`<task>` is `{"id", "title", "kind", "status", "note", "refs", "ref_labels", "created", "updated", "body"}`. `refs` is returned as an empty array when the task has none, and `note` as an empty string. `refs` stays an array of strings; `ref_labels` maps each labeled ref to its label, and is `{}` when no ref has one.
 
 Error codes (`error.code`):
 
@@ -202,6 +206,8 @@ Shows the details of a task: the metadata, the body, every log entry, and the li
 
 A long log is most of what `show` prints, and a reader who wants the body and the latest entries would otherwise cut the output blindly. With `--log`, `log` in the JSON holds only those entries. So that a shortened log does not read as the whole of it, `log_total` in the JSON is the number of entries the task has, with or without `--log`, and the human-readable output says how many there are when it leaves some out (`# Log (last 2 of 12)`).
 
+The human-readable output prints each ref on a line of its own, followed by its label in parentheses when it has one.
+
 ### 6.3 `shu save`
 
 Creates or updates a task (upsert). Takes JSON from standard input.
@@ -213,7 +219,10 @@ Creates or updates a task (upsert). Takes JSON from standard input.
   "kind": "bug-investigation",
   "status": "waiting",
   "note": "Waiting for the payment provider to reply",
-  "refs": ["https://github.com/example-org/example-repo/pull/482"],
+  "refs": [
+    "https://github.com/example-org/example-repo/pull/482",
+    {"ref": "ABC-123", "label": "Ticket: retries without an idempotency key"}
+  ],
   "body": "A retry without an idempotency key charges twice."
 }
 ```
@@ -228,7 +237,8 @@ How the target task is chosen:
 Update rules:
 
 - With `id`, only the given fields are updated (partial update). The one exception is the note, which a change of status clears (below)
-- `refs` are **added to the existing ones** (not replaced). A ref is removed explicitly with `--remove-ref <ref>`
+- `refs` are **added to the existing ones** (not replaced). A ref is removed explicitly with `--remove-ref <ref>`, and its label with it
+- An item of `refs` is a ref, or `{"ref": "<ref>", "label": "<label>"}`. A label is given together with its ref: it replaces the stored label, and an empty label removes it. A ref given without a label keeps the label it has, so a save that only lists refs (a matched save from a sync, for one) never drops a label. A label that breaks the rules in §3.1, a mapping with other keys, and the same ref given twice with different labels are errors (`invalid_input`)
 - `id` and `created` cannot be changed
 - The only input fields are `id` / `title` / `kind` / `status` / `note` / `refs` / `body`. Anything else (including `created` / `updated` and misspellings) is an error
 - `--remove-ref` can be repeated. Naming a ref that the target task does not have does nothing (it is not an error). Naming the same ref in both `refs` and `--remove-ref` is an error
@@ -238,9 +248,9 @@ Update rules:
 
 Matched saves (a save without `id` that resolves to an existing task):
 
-- **Only refs change.** The input's `refs` are added and `--remove-ref` is applied. `title`, `kind`, `status`, `note`, and `body` are not applied. Input written to create a task therefore never overwrites a task that already exists, and a sync can be run again without moving a task back to an earlier status
+- **Only refs and their labels change.** The input's `refs` are added, with their labels, and `--remove-ref` is applied. `title`, `kind`, `status`, `note`, and `body` are not applied. Input written to create a task therefore never overwrites a task that already exists, and a sync can be run again without moving a task back to an earlier status
 - The output names, in `skipped`, the input fields whose value differs from the stored one. To apply them, save again with the `id`
-- A matched save that changes no ref writes nothing: the task stays as it is, including `updated`
+- A matched save that changes no ref and no label writes nothing: the task stays as it is, including `updated`
 
 The output includes a field that tells whether the task was created, updated, or matched by dedupe (`"result": "created" | "updated" | "matched"`). `skipped` is an empty array unless the save matched.
 
@@ -336,6 +346,7 @@ SHU is built on the assumption that several agents call it at the same time.
 - The skill reaches for SHU for any work worth picking up again or looking back on, whatever it came from: a PR, a ticket, a Slack thread, a document, or only a conversation (a verification, an investigation, a design discussion) that reached a conclusion or a next step. A question answered on the spot is not a task. Before it creates a task without refs, the agent looks for the same work in `shu list --all` and updates that task by `id` if it is there, and a ref that appears later is added to the existing task. The CLI has no other key to dedupe such a task by: a free-form key chosen by the agent would not be chosen the same way twice, so it would catch no more than reading the list does
 - Before the agent reads a PR, a ticket, a Slack thread, or a document by its URL, the skill has it run `shu find --ref` with that URL, including one it only reads for reference during other work, such as someone else's PR. What an earlier session stored for it (a brief, a review, the log) is read before the source. A miss means there is nothing to read first, not that a task should be made: a read for reference is not a task
 - The one thing written in both is when to log: the moments that call for an entry (a lookup or a subagent returns, the user voices a concern, a preference, or a decision, the agent is about to wait for an answer), and that an entry is written before anything is settled. An agent can learn the commands from `shu --help` without loading the skill, and one that does would otherwise never be told when to log. A test keeps the moments named in the help and in the skill's "When to log" section the same, in both directions, and checks that both carry the two sentences on what is unsettled. The skill's description and this section repeat the moments and are kept in step by hand
+- The skill has the agent label a ref whose ID alone does not say what it is: its relation to the task (a child ticket, the PR that fixes it) and its topic. The title of a page changes, so a label is worth more for the relation, which does not; when the agent sees that a label no longer fits, it saves the ref again with a new one. A label is written by the agent from what it already read, because the CLI collects nothing (§1)
 - The skill and the help text of `log` have the agent write an entry in Markdown kept to bullets, inline code, and links (§6.5), and the skill shows one such entry among its examples
 - The `shu` skill does not collect data either. How to query GitHub, Linear, or Slack, and how to classify what comes back, is left to the agent and to the user's own skills
 
@@ -381,7 +392,7 @@ A task is a hand-written copy of facts that live elsewhere (a pull request, a de
 
 While the user reads a pull request, a ticket, or a document in the browser, the task that refs it, and what is already stored for it (artifacts, the latest log entries), is one lookup away: `shu find --ref` with the page's URL. `browser/` puts that lookup in Google Chrome.
 
-- `browser/chrome/` is the extension. It marks the toolbar icon of a tab whose page a task refs, and its popup shows the task's ID, status, kind, note, refs (each as a link to the page it names), artifact names (each with a button that copies its path), the last three log entries (and how many there are when some are left out), and the body
+- `browser/chrome/` is the extension. It marks the toolbar icon of a tab whose page a task refs, and its popup shows the task's ID, status, kind, note, refs (each as a link to the page it names, with its label when it has one), artifact names (each with a button that copies its path), the last three log entries (and how many there are when some are left out), and the body
 - The log entries and the body are rendered as Markdown, but only bullet lists (`- ` and `* `, nested one level below the list's first bullet), inline code, fenced code blocks, links (`[text](url)` and bare URLs), bold, headings, and paragraphs with their line breaks kept. A heading is shown as one bold line, not at a heading's size. Bold is only a tight pair (`**x**`, with no space inside either end) and never a `**` next to a `/`, so a glob such as `test/**/*.test.js` stays as written. Anything else stays as written, because entries already hold text that a full renderer would change: raw HTML and strings that look like it (`<!channel>`, `<url|text>`) are never rendered as HTML, and a single `*` and an `_` inside a word are never emphasis. Only a line that starts with three backticks and has no backtick after them opens a code block, so three backticks inside a sentence, or around code on one line, are not a code block. A link is made only for an `http(s)` URL, and opens in a new tab; any other `[text](url)` stays as text. A bare URL ends at its first character outside ASCII, so that text written right after it stays out of the link; a URL with such characters is linked whole only as `[text](url)`. The renderer returns a tree that the popup builds from text nodes, never from HTML. It is written in the extension rather than taken from a library: an extension can load no remote script, and the subset is small
 - The mark is looked up when a tab loads a page or changes its URL, when the user switches to a tab (the store may have changed meanwhile), for every tab when the extension is installed or the browser starts, and again when the popup opens. A tab left open while the store changes keeps its mark until one of those
 - **It only reads.** It changes nothing in SHU and offers no command that does

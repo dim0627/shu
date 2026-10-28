@@ -48,7 +48,7 @@ The repository holds two skills, and the installer asks which to add. If you ins
 
 ### Chrome extension
 
-`browser/` holds an extension for Google Chrome that marks the toolbar icon when a task refs the page you are on: a pull request, a Linear issue, a Slack thread, a Notion page, or a URL a task holds (matched exactly, apart from a `#fragment`). Its popup shows the task's status, note, refs as links, artifacts, the last three log entries, and body, with the Markdown in the entries and the body rendered (bullets, `code`, code blocks, links, bold, and headings as a bold line). It only reads. It needs `python3`, `shu` 0.6.0 or later, and a clone of this repository:
+`browser/` holds an extension for Google Chrome that marks the toolbar icon when a task refs the page you are on: a pull request, a Linear issue, a Slack thread, a Notion page, or a URL a task holds (matched exactly, apart from a `#fragment`). Its popup shows the task's status, note, refs as links with their labels, artifacts, the last three log entries, and body, with the Markdown in the entries and the body rendered (bullets, `code`, code blocks, links, bold, and headings as a bold line). It only reads. It needs `python3`, `shu` 0.6.0 or later, and a clone of this repository:
 
 1. Open `chrome://extensions`, turn on Developer mode, and load `browser/chrome` with "Load unpacked"
 2. Copy the extension's ID from that page, and run `sh browser/install.sh <ID>` in a shell where `shu` works
@@ -121,7 +121,7 @@ The target task is chosen in this order:
 
 A matched save never overwrites `title`, `kind`, `status`, `note`, or `body`, so input written to create a task cannot clobber one that already exists. The fields that differ from the stored ones are listed in `skipped`; save again with the `id` to apply them. A matched save that changes no reference leaves the task untouched.
 
-Updates by `id` are partial: only the fields you pass are changed, except that a new `status` clears the `note` unless you pass one. `refs` are added to the existing ones, never replaced. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
+Updates by `id` are partial: only the fields you pass are changed, except that a new `status` clears the `note` unless you pass one. `refs` are added to the existing ones, never replaced. A reference can be given with a label, `{"ref": "ABC-123", "label": "Child ticket: client API"}`, which replaces its stored label (an empty one removes it); a reference given alone keeps the label it has. To remove a reference, pass `--remove-ref <ref>` together with the `id` (or another reference) of the task to remove it from.
 
 ### Task fields
 
@@ -132,7 +132,7 @@ Updates by `id` are partial: only the fields you pass are changed, except that a
 | `kind` | Free-form, one line. Suggested values: `review`, `pr-followup`, `bug-investigation`, `alert-investigation`, `fix-request`, `ticket`. `shu kinds` lists the ones already in use. |
 | `status` | `todo` (not started), `open` (in progress), `waiting` (blocked on someone else), `done`, or `dropped`. |
 | `note` | One line, with no control characters, that says where the task stands: why it is in its status, such as who a `waiting` task is waiting on, or the next step of an `open` one. `shu list` shows it after the title, and `shu log` prints it after every entry. Cleared when the status changes without a new note. |
-| `refs` | Normalized references. Each reference belongs to at most one task. |
+| `refs` | Normalized references, each with an optional one-line label. Each reference belongs to at most one task. With `--json`, `refs` lists the references and `ref_labels` maps each labeled one to its label. |
 | `created`, `updated` | Set by SHU. |
 
 ## IDs
@@ -146,6 +146,8 @@ Anywhere an ID is expected you can pass just the words (`aoi-kitsune`). If the w
 A reference points at where a task came from. One task can have several, because work tends to move — a Slack thread becomes a ticket, which becomes a PR. A task can also have none, when the work started in a conversation; add the reference to that task when a ticket or a PR appears, so the task stays one.
 
 References are normalized when saved, so different spellings of the same thing resolve to the same task.
+
+Most references name their page only by an ID, so a task with several of them is hard to read. Give such a reference a label that says what it is to the task, such as `Child ticket: client API` or `PR that fixes it`. Labels are stored from SHU 0.10.0, and an older `shu` cannot read a task that has one, so upgrade every `shu` that shares a store first.
 
 | Kind | Normal form | Accepted input |
 |---|---|---|

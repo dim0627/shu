@@ -14,7 +14,7 @@ afterEach(cleanupHomes);
 
 const SKILLS = join(import.meta.dir, "../skills");
 
-const TASK_KEYS = ["id", "title", "kind", "status", "note", "refs", "created", "updated"];
+const TASK_KEYS = ["id", "title", "kind", "status", "note", "refs", "ref_labels", "created", "updated"];
 const DETAIL_KEYS = [...TASK_KEYS, "body"];
 
 describe("--json output shape (the contract)", () => {
@@ -405,6 +405,15 @@ describe("kinds", () => {
 });
 
 describe("show", () => {
+  test("prints each ref on a line of its own, with its label in parentheses", async () => {
+    const home = tempHome();
+    const refs = ["abc-1", { ref: "abc-2", label: "Child ticket: client API" }];
+    const id = await create(home, { title: "t", kind: "ticket", refs });
+    expect((await shu(home, ["show", id])).stdout).toContain(
+      "\nref: linear:ABC-1\nref: linear:ABC-2 (Child ticket: client API)\n",
+    );
+  });
+
   test("accepts just the words of the ID", async () => {
     const home = tempHome();
     const id = await create(home, { title: "t", kind: "ticket" });
@@ -676,7 +685,7 @@ describe("help", () => {
     }
     const save = await shuJson(home, ["save", "--help"]);
     expect(Object.keys(save.json)).toEqual(["help"]);
-    expect(save.json.help).toContain('"refs": ["..."]');
+    expect(save.json.help).toContain('"refs": ["...", {"ref": "...", "label": "..."}]');
     expect(save.json.help).not.toContain("shu log");
     expect((await shu(home, ["--help", "save"])).stdout).toBe((await shu(home, ["save", "--help"])).stdout);
   });
