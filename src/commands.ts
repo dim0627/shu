@@ -176,7 +176,7 @@ export function save(
       const result: SaveResult = "created";
       return { result, task: detail(createTask(ctx, input, addRefs, labels)), skipped: [] };
     }
-    // Input without an id may have been written to create a task, so on a match it must not overwrite one
+    // Input without an id may have been written to create a task, so on a match only refs and their labels apply
     const matched = target.result === "matched";
     const task = updateTask(ctx, target.id, matched ? {} : input, addRefs, removeRefs, {
       skipUnchanged: matched,

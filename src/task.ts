@@ -104,9 +104,8 @@ export function parseTaskFile(text: string, id: string): Task {
     const read = readStoredRef(ref);
     if (read === null) throw invalid(`refs contains a non-normalized ref (${ref})`);
     // Two URLs of one page, saved as two url refs, read as the same ref
-    if (refs.includes(read)) continue;
-    refs.push(read);
-    if (label) ref_labels[read] = label;
+    if (label && !ref_labels[read]) ref_labels[read] = label;
+    if (!refs.includes(read)) refs.push(read);
   }
   if (!isTimestamp(created)) throw invalid("created must be an ISO 8601 timestamp");
   if (!isTimestamp(updated)) throw invalid("updated must be an ISO 8601 timestamp");
