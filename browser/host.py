@@ -6,7 +6,7 @@ lookup: {"url": "<page URL>"}. Each message, in either direction, is a 4-byte
 length in native byte order followed by that many bytes of UTF-8 JSON.
 
 The answer is {"task": null} when nothing refs the page, the output of
-`shu show <id> --log 3 --json` with "path" (the task directory) added, or
+`shu show <id> --json` with "path" (the task directory) added, or
 {"error": {"code", "message"}} when the lookup fails. The script only reads.
 """
 
@@ -94,7 +94,10 @@ def lookup(message):
     if "error" in found:
         return {"task": None} if found["error"].get("code") in NOTHING else found
     task_id = found["task"]["id"]
-    shown = shu_json(shu, env, "show", task_id, "--log", LOG_TAIL)
+    shown = shu_json(shu, env, "show", task_id)
+    # The popup picks this page's entries out of the whole log, but a reply Chrome refuses shows nothing
+    if "error" not in shown and len(json.dumps(shown, ensure_ascii=False).encode("utf-8")) > MAX_REPLY:
+        shown = shu_json(shu, env, "show", task_id, "--log", LOG_TAIL)
     if "error" in shown:
         return with_upgrade(shown)
     located = shu_json(shu, env, "path", task_id)

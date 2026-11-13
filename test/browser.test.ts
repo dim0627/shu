@@ -2,7 +2,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-expect-error The extension is plain JavaScript, loaded by Chrome as is
-import { refLink, showBadge } from "../browser/chrome/lookup.js";
+import { mentions, pageNumber, refLink, showBadge } from "../browser/chrome/lookup.js";
 // @ts-expect-error The extension is plain JavaScript, loaded by Chrome as is
 import { markdown } from "../browser/chrome/markdown.js";
 import { cleanupHomes, create, executable, SHU_STAND_IN, shu, shuJson, spawnCollect, tempHome } from "./helpers";
@@ -77,7 +77,7 @@ async function ask(home: string, messages: unknown[], setup: Setup = {}) {
 }
 
 describe("host", () => {
-  test("answers with the task that refs the page, its last 3 log entries, artifacts, and directory", async () => {
+  test("answers with the task that refs the page, its whole log, artifacts, and directory", async () => {
     const home = tempHome();
     const id = await create(home, { title: "Fix the login redirect", kind: "review", refs: [PR] });
     for (const n of [1, 2, 3, 4, 5]) await shu(home, ["log", id, `entry ${n}`]);
@@ -88,10 +88,21 @@ describe("host", () => {
     const [reply] = await ask(home, [{ url: `${PR}/files#diff-abc` }]);
 
     expect(reply.task.id).toBe(id);
-    expect(reply.log.map((e: { message: string }) => e.message)).toEqual(["entry 3", "entry 4", "entry 5"]);
+    expect(reply.log.map((e: { message: string }) => e.message)).toEqual(["entry 1", "entry 2", "entry 3", "entry 4", "entry 5"]);
     expect(reply.log_total).toBe(5);
     expect(reply.artifacts).toEqual(["brief.md"]);
     expect(reply.path).toBe((await shuJson(home, ["path", id])).json.path);
+  });
+
+  test("answers with the last 3 log entries when the whole log is too large for Chrome", async () => {
+    const home = tempHome();
+    const id = await create(home, { title: "Fix the login redirect", kind: "review", refs: [PR] });
+    for (const n of [1, 2, 3, 4, 5, 6]) await shu(home, ["log", id, `entry ${n} ${"x".repeat(200_000)}`]);
+
+    const [reply] = await ask(home, [{ url: PR }]);
+
+    expect(reply.log.map((e: { message: string }) => e.message.slice(0, 7))).toEqual(["entry 4", "entry 5", "entry 6"]);
+    expect(reply.log_total).toBe(6);
   });
 
   test("reads the store install.sh recorded, and SHU_HOME from the environment over it", async () => {
@@ -292,6 +303,31 @@ describe("extension", () => {
     ["url:javascript:alert(1)", null],
   ])("links %s to %s", (ref, href) => {
     expect(refLink(ref).href).toBe(href);
+  });
+
+  const REFS = ["github:example-org/example-repo#482", "linear:ABC-123"];
+
+  test.each([
+    [PR, "482"],
+    [`${PR}/files#diff-abc`, "482"],
+    ["https://github.com/Example-Org/Example-Repo/issues/0482?tab=1", "482"],
+    ["https://github.com/example-org/other-repo/pull/482", null],
+    ["https://github.com/example-org/example-repo/pull/4821", null],
+    ["https://github.com/example-org/example-repo/pull/482x", null],
+    ["https://linear.app/example/issue/ABC-123", null],
+    [undefined, null],
+  ])("reads the page %s as #%s", (url, number) => {
+    expect(pageNumber(url, REFS)).toBe(number);
+  });
+
+  test.each([
+    ["brief #482", true],
+    ["- #482 Ready; #483 draft", true],
+    ["example-org/example-repo#482 merged", true],
+    ["#4821 is another one", false],
+    ["PR 482", false],
+  ])("finds #482 in %j: %p", (text, found) => {
+    expect(mentions(text, "482")).toBe(found);
   });
 
   test.each([

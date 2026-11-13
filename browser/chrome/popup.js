@@ -1,4 +1,4 @@
-import { lookup, refLink, showBadge } from "./lookup.js";
+import { lookup, mentions, pageNumber, refLink, showBadge } from "./lookup.js";
 import { markdown } from "./markdown.js";
 
 const root = document.getElementById("root");
@@ -51,17 +51,51 @@ function heading(text, count) {
   return el("h2", {}, text, count === null ? null : el("span", { className: "count", textContent: count }));
 }
 
+const LOG_TAIL = 3;
+
+function artifactList(names, dir, empty) {
+  return names.length === 0
+    ? el("div", { className: "none", textContent: empty })
+    : el(
+        "ul",
+        { className: "files" },
+        ...names.map((name) =>
+          el("li", {}, el("span", { className: "name", textContent: name }), copyButton(`${dir}/${name}`, "Copy path")),
+        ),
+      );
+}
+
+function timeline(entries, empty = "None yet") {
+  return entries.length === 0
+    ? el("div", { className: "none", textContent: empty })
+    : el(
+        "ol",
+        { className: "timeline" },
+        ...entries
+          .toReversed()
+          .map((e) =>
+            el("li", {}, el("div", { className: "at", textContent: `${shortTime(e.at)} · ${e.author}` }), prose(e.message)),
+          ),
+      );
+}
+
+const ofTotal = (shown, total) => (shown < total ? `${shown} of ${total}` : null);
+
 function state(message, className = "") {
   root.replaceChildren(el("div", { className: `state ${className}` }, seal(), el("p", { textContent: message })));
 }
 
-function render(reply) {
+function render(reply, url) {
   if (reply.error) return state(reply.error.message, "error");
   if (!reply.task) return state("No SHU task refs this page.");
 
   const { task, log, log_total, artifacts, path } = reply;
   const artifactDir = `${path}/artifacts`;
   const status = /^[a-z]+$/.test(task.status) ? task.status : "";
+  const number = pageNumber(url, task.refs);
+  const pageArtifacts = number ? artifacts.filter((name) => mentions(name, number)) : [];
+  const pageLog = number ? log.filter((e) => mentions(e.message, number)) : [];
+  const otherArtifacts = artifacts.filter((name) => !pageArtifacts.includes(name));
 
   root.replaceChildren(
     el(
@@ -86,42 +120,24 @@ function render(reply) {
       "main",
       {},
       task.note ? el("div", { className: "note", textContent: task.note }) : null,
+      number
+        ? el(
+            "section",
+            { className: "page" },
+            heading(`This page · #${number}`, null),
+            artifactList(pageArtifacts, artifactDir, `No artifact names #${number}`),
+            heading("Log", ofTotal(Math.min(pageLog.length, LOG_TAIL), pageLog.length)),
+            timeline(pageLog.slice(-LOG_TAIL), `No entry names #${number}`),
+          )
+        : null,
       heading("Refs", task.refs.length ? `${task.refs.length}` : null),
       task.refs.length === 0
         ? el("div", { className: "none", textContent: "None" })
         : el("ul", { className: "files refs" }, ...task.refs.map((ref) => refItem(ref, task.ref_labels?.[ref]))),
-      heading("Artifacts", artifacts.length ? `${artifacts.length}` : null),
-      artifacts.length === 0
-        ? el("div", { className: "none", textContent: "None yet" })
-        : el(
-            "ul",
-            { className: "files" },
-            ...artifacts.map((name) =>
-              el(
-                "li",
-                {},
-                el("span", { className: "name", textContent: name }),
-                copyButton(`${artifactDir}/${name}`, "Copy path"),
-              ),
-            ),
-          ),
-      heading("Latest log", log.length < log_total ? `${log.length} of ${log_total}` : null),
-      log.length === 0
-        ? el("div", { className: "none", textContent: "None yet" })
-        : el(
-            "ol",
-            { className: "timeline" },
-            ...log
-              .toReversed()
-              .map((e) =>
-                el(
-                  "li",
-                  {},
-                  el("div", { className: "at", textContent: `${shortTime(e.at)} · ${e.author}` }),
-                  prose(e.message),
-                ),
-              ),
-          ),
+      heading(number ? "Other artifacts" : "Artifacts", otherArtifacts.length ? `${otherArtifacts.length}` : null),
+      artifactList(otherArtifacts, artifactDir, number && artifacts.length ? "None" : "None yet"),
+      heading("Latest log", ofTotal(Math.min(log.length, LOG_TAIL), log_total)),
+      timeline(log.slice(-LOG_TAIL)),
       task.body
         ? el("details", { open: true, style: "margin-top: 16px" }, el("summary", { textContent: "Body" }), prose(task.body))
         : null,
@@ -131,6 +147,6 @@ function render(reply) {
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const reply = await lookup(tab?.url);
-render(reply);
+render(reply, tab?.url);
 // The badge may predate a save made since; this answer is the newest
 if (tab?.id !== undefined) showBadge(tab.id, reply).catch(() => {});

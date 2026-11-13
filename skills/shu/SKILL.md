@@ -112,6 +112,11 @@ should hold, update the body with `save`.
 - **artifacts**: files worth rereading (a brief, an investigation report, a fix
   plan). Read them from the path that `shu path` prints.
 
+When a task holds several pull requests, name the one an entry or an artifact
+is about by its number (`#482`, `brief #482`), even where a plan calls it
+"PR2": on that pull request's page, the browser extension shows what names
+`#482` first.
+
 Store understanding, history, and artifacts. Leave out anything the source can
 tell you again, such as a PR's review state or CI result: fetch that fresh.
 
