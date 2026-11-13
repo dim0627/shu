@@ -28,18 +28,6 @@ export async function showBadge(tabId, reply) {
   await chrome.action.setTitle({ tabId, title });
 }
 
-// Only a GitHub page has a number that log entries and artifact names also use (#482).
-// The ref check keeps a page of another repository from claiming the task's #482
-export function pageNumber(url, refs) {
-  const m = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:pull|issues)\/(\d+)(?:[/?#]|$)/i.exec(url ?? "");
-  if (!m) return null;
-  const number = String(Number(m[3]));
-  const ref = `github:${m[1]}/${m[2]}#${number}`.toLowerCase();
-  return refs.includes(ref) ? number : null;
-}
-
-export const mentions = (text, number) => new RegExp(`#${number}(?!\\d)`).test(text);
-
 // A stored ref is normalized, so the page it came from has to be rebuilt
 export function refLink(ref) {
   const at = ref.indexOf(":");
