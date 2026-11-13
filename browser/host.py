@@ -6,19 +6,21 @@ lookup: {"url": "<page URL>"}. Each message, in either direction, is a 4-byte
 length in native byte order followed by that many bytes of UTF-8 JSON.
 
 The answer is {"task": null} when nothing refs the page, the output of
-`shu show <id> --json` with "path" (the task directory) added, or
-{"error": {"code", "message"}} when the lookup fails. The script only reads.
+`shu show <id> --log 3 --json` with "path" (the task directory) and "page"
+added, or {"error": {"code", "message"}} when the lookup fails. "page" is the
+page's own part of the task (see page_part), or null. The script only reads.
 """
 
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
 import sys
 from urllib.parse import urldefrag
 
-LOG_TAIL = "3"
+LOG_TAIL = 3
 # Chrome refuses a message from the host larger than this
 MAX_REPLY = 1024 * 1024
 # The page is not a ref shu can read, or no task holds it: both mean "nothing here"
@@ -79,6 +81,41 @@ def find(shu, env, url):
     return found
 
 
+GITHUB_PAGE = re.compile(r"^https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)(?:[/?#]|$)", re.I)
+
+
+# Only a GitHub page has a number that log entries and artifact names also use (#482).
+# find has already matched the page to the task, so its ref is the task's
+def page_of(url):
+    m = GITHUB_PAGE.match(url)
+    return (f"{m[1]}/{m[2]}".lower(), str(int(m[3]))) if m else None
+
+
+def mentions(text, repo, number):
+    # `other-org/lib#482` is another repository's #482; a bare #482 is taken as this page's
+    for m in re.finditer(rf"([\w.-]+/[\w.-]+)?#{number}(?!\d)", text):
+        if m[1] is None or m[1].lower() == repo:
+            return True
+    return False
+
+
+def page_part(shu, env, task_id, url):
+    page = page_of(url)
+    if page is None:
+        return None
+    repo, number = page
+    whole = shu_json(shu, env, "show", task_id)
+    if "error" in whole:
+        return whole
+    entries = [e for e in whole["log"] if mentions(e["message"], repo, number)]
+    return {
+        "number": number,
+        "log": entries[-LOG_TAIL:],
+        "log_total": len(entries),
+        "artifacts": [name for name in whole["artifacts"] if mentions(name, repo, number)],
+    }
+
+
 def lookup(message):
     url = message.get("url") if isinstance(message, dict) else None
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
@@ -94,16 +131,16 @@ def lookup(message):
     if "error" in found:
         return {"task": None} if found["error"].get("code") in NOTHING else found
     task_id = found["task"]["id"]
-    shown = shu_json(shu, env, "show", task_id)
-    # The popup picks this page's entries out of the whole log, but a reply Chrome refuses shows nothing
-    if "error" not in shown and len(json.dumps(shown, ensure_ascii=False).encode("utf-8")) > MAX_REPLY:
-        shown = shu_json(shu, env, "show", task_id, "--log", LOG_TAIL)
+    shown = shu_json(shu, env, "show", task_id, "--log", str(LOG_TAIL))
     if "error" in shown:
         return with_upgrade(shown)
+    page = page_part(shu, env, task_id, url)
+    if page is not None and "error" in page:
+        return with_upgrade(page)
     located = shu_json(shu, env, "path", task_id)
     if "error" in located:
         return with_upgrade(located)
-    return {**shown, "path": located["path"]}
+    return {**shown, "path": located["path"], "page": page}
 
 
 def encode(reply):

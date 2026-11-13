@@ -1,4 +1,4 @@
-import { lookup, mentions, pageNumber, refLink, showBadge } from "./lookup.js";
+import { lookup, refLink, showBadge } from "./lookup.js";
 import { markdown } from "./markdown.js";
 
 const root = document.getElementById("root");
@@ -51,8 +51,6 @@ function heading(text, count) {
   return el("h2", {}, text, count === null ? null : el("span", { className: "count", textContent: count }));
 }
 
-const LOG_TAIL = 3;
-
 function artifactList(names, dir, empty) {
   return names.length === 0
     ? el("div", { className: "none", textContent: empty })
@@ -85,17 +83,15 @@ function state(message, className = "") {
   root.replaceChildren(el("div", { className: `state ${className}` }, seal(), el("p", { textContent: message })));
 }
 
-function render(reply, url) {
+function render(reply) {
   if (reply.error) return state(reply.error.message, "error");
   if (!reply.task) return state("No SHU task refs this page.");
 
-  const { task, log, log_total, artifacts, path } = reply;
+  // A host older than the extension sends no page
+  const { task, log, log_total, artifacts, path, page = null } = reply;
   const artifactDir = `${path}/artifacts`;
   const status = /^[a-z]+$/.test(task.status) ? task.status : "";
-  const number = pageNumber(url, task.refs);
-  const pageArtifacts = number ? artifacts.filter((name) => mentions(name, number)) : [];
-  const pageLog = number ? log.filter((e) => mentions(e.message, number)) : [];
-  const otherArtifacts = artifacts.filter((name) => !pageArtifacts.includes(name));
+  const otherArtifacts = page ? artifacts.filter((name) => !page.artifacts.includes(name)) : artifacts;
 
   root.replaceChildren(
     el(
@@ -120,24 +116,24 @@ function render(reply, url) {
       "main",
       {},
       task.note ? el("div", { className: "note", textContent: task.note }) : null,
-      number
+      page
         ? el(
             "section",
             { className: "page" },
-            heading(`This page · #${number}`, null),
-            artifactList(pageArtifacts, artifactDir, `No artifact names #${number}`),
-            heading("Log", ofTotal(Math.min(pageLog.length, LOG_TAIL), pageLog.length)),
-            timeline(pageLog.slice(-LOG_TAIL), `No entry names #${number}`),
+            heading(`This page · #${page.number}`, null),
+            artifactList(page.artifacts, artifactDir, `No artifact names #${page.number}`),
+            heading("Log", ofTotal(page.log.length, page.log_total)),
+            timeline(page.log, `No entry names #${page.number}`),
           )
         : null,
       heading("Refs", task.refs.length ? `${task.refs.length}` : null),
       task.refs.length === 0
         ? el("div", { className: "none", textContent: "None" })
         : el("ul", { className: "files refs" }, ...task.refs.map((ref) => refItem(ref, task.ref_labels?.[ref]))),
-      heading(number ? "Other artifacts" : "Artifacts", otherArtifacts.length ? `${otherArtifacts.length}` : null),
-      artifactList(otherArtifacts, artifactDir, number && artifacts.length ? "None" : "None yet"),
-      heading("Latest log", ofTotal(Math.min(log.length, LOG_TAIL), log_total)),
-      timeline(log.slice(-LOG_TAIL)),
+      heading(page ? "Other artifacts" : "Artifacts", otherArtifacts.length ? `${otherArtifacts.length}` : null),
+      artifactList(otherArtifacts, artifactDir, page && artifacts.length ? "None" : "None yet"),
+      heading("Latest log", ofTotal(log.length, log_total)),
+      timeline(log),
       task.body
         ? el("details", { open: true, style: "margin-top: 16px" }, el("summary", { textContent: "Body" }), prose(task.body))
         : null,
@@ -147,6 +143,6 @@ function render(reply, url) {
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const reply = await lookup(tab?.url);
-render(reply, tab?.url);
+render(reply);
 // The badge may predate a save made since; this answer is the newest
 if (tab?.id !== undefined) showBadge(tab.id, reply).catch(() => {});
