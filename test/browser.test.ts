@@ -107,6 +107,8 @@ describe("host", () => {
       "Example-Org/Example-Repo#482 CI is green",
       "other-org/lib#482 is the upstream fix",
       "#4821 is another one",
+      "設計/実装は#482で対応",
+      "example-org/example-repoの#482",
       "#482 review addressed",
       "Ready for review: #482",
     ]) {
@@ -122,13 +124,15 @@ describe("host", () => {
 
     expect(reply.page.number).toBe("482");
     expect(reply.page.log.map((e: { message: string }) => e.message)).toEqual([
-      "Example-Org/Example-Repo#482 CI is green",
+      "example-org/example-repoの#482",
       "#482 review addressed",
       "Ready for review: #482",
     ]);
-    expect(reply.page.log_total).toBe(4);
+    expect(reply.page.log_total).toBe(6);
     expect(reply.page.artifacts).toEqual(["brief-#482.md"]);
-    expect(reply.log).toHaveLength(3);
+    // The whole log is read for the page's part, and the reply still carries only its tail
+    expect(reply.log.map((e: { message: string }) => e.message)).toEqual(reply.page.log.map((e: { message: string }) => e.message));
+    expect(reply.log_total).toBe(9);
   });
 
   test("adds page null for a page that is not a pull request or an issue", async () => {
@@ -233,6 +237,21 @@ describe("host", () => {
     expect(reply.error.message).toContain("install.sh | sh");
   });
 
+  test("says how to install the latest when shu answers show without log_total, as one older than 0.6.0 does", async () => {
+    const oldShu = `#!/bin/sh
+case "$1" in
+  find) echo '{"task": {"id": "20260101-aoi-kitsune"}}' ;;
+  show) echo '{"task": {"id": "20260101-aoi-kitsune", "refs": []}, "log": [], "artifacts": []}' ;;
+  *) echo '{"path": "/tmp"}' ;;
+esac
+`;
+    const [reply] = await ask(tempHome(), [{ url: PR }], {
+      config: { shu: join(binWith(oldShu), "shu"), shu_home: null },
+    });
+    expect(reply.error.code).toBe("invalid_input");
+    expect(reply.error.message).toContain("older than 0.6.0");
+  });
+
   test("says how to install the latest when shu does not know an option the host uses", async () => {
     const oldShu = `#!/bin/sh
 case "$1" in
@@ -240,7 +259,7 @@ case "$1" in
   *) echo '{"error": {"code": "invalid_input", "message": "Unknown option --log"}}'; exit 1 ;;
 esac
 `;
-    const [reply] = await ask(tempHome(), [{ url: PR }], {
+    const [reply] = await ask(tempHome(), [{ url: "https://docs.example.com/page" }], {
       config: { shu: join(binWith(oldShu), "shu"), shu_home: null },
     });
     expect(reply.error.code).toBe("invalid_input");

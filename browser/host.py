@@ -8,7 +8,8 @@ length in native byte order followed by that many bytes of UTF-8 JSON.
 The answer is {"task": null} when nothing refs the page, the output of
 `shu show <id> --log 3 --json` with "path" (the task directory) and "page"
 added, or {"error": {"code", "message"}} when the lookup fails. "page" is the
-page's own part of the task (see page_part), or null. The script only reads.
+page's own part of the task (see page_part), or null; on such a page the log is
+read whole and cut to the last 3 here. The script only reads.
 """
 
 import json
@@ -92,27 +93,21 @@ def page_of(url):
 
 
 def mentions(text, repo, number):
-    # `other-org/lib#482` is another repository's #482; a bare #482 is taken as this page's
-    for m in re.finditer(rf"([\w.-]+/[\w.-]+)?#{number}(?!\d)", text):
+    # `other-org/lib#482` is another repository's #482; a bare #482 is taken as this page's.
+    # The names are GitHub's ASCII ones, so a `/` in prose (設計/実装は#482) is not a repository
+    for m in re.finditer(rf"(?:(?<![A-Za-z0-9._-])([A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+))?#{number}(?!\d)", text):
         if m[1] is None or m[1].lower() == repo:
             return True
     return False
 
 
-def page_part(shu, env, task_id, url):
-    page = page_of(url)
-    if page is None:
-        return None
-    repo, number = page
-    whole = shu_json(shu, env, "show", task_id)
-    if "error" in whole:
-        return whole
-    entries = [e for e in whole["log"] if mentions(e["message"], repo, number)]
+def page_part(shown, repo, number):
+    entries = [e for e in shown["log"] if mentions(e["message"], repo, number)]
     return {
         "number": number,
         "log": entries[-LOG_TAIL:],
         "log_total": len(entries),
-        "artifacts": [name for name in whole["artifacts"] if mentions(name, repo, number)],
+        "artifacts": [name for name in shown["artifacts"] if mentions(name, repo, number)],
     }
 
 
@@ -131,12 +126,17 @@ def lookup(message):
     if "error" in found:
         return {"task": None} if found["error"].get("code") in NOTHING else found
     task_id = found["task"]["id"]
-    shown = shu_json(shu, env, "show", task_id, "--log", str(LOG_TAIL))
+    page = page_of(url)
+    # One read for the page's part and the tail, so the two cannot disagree
+    shown = shu_json(shu, env, "show", task_id) if page else shu_json(shu, env, "show", task_id, "--log", str(LOG_TAIL))
     if "error" in shown:
         return with_upgrade(shown)
-    page = page_part(shu, env, task_id, url)
-    if page is not None and "error" in page:
-        return with_upgrade(page)
+    # A shu older than 0.6.0 knows no --log, and answers show without log_total
+    if "log_total" not in shown:
+        return {"error": {"code": "invalid_input", "message": f"shu sent no log_total. {UPGRADE}"}}
+    if page:
+        page = page_part(shown, *page)
+        shown = {**shown, "log": shown["log"][-LOG_TAIL:]}
     located = shu_json(shu, env, "path", task_id)
     if "error" in located:
         return with_upgrade(located)
